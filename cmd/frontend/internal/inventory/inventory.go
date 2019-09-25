@@ -1,14 +1,9 @@
-// Package inventory scans a directory tree to identify the
-// programming languages, etc., in use.
 package inventory
 
 import (
 	"context"
 	"os"
-	"path/filepath"
-
-	"github.com/src-d/enry/v2"
-	"github.com/src-d/enry/v2/data"
+	"sort"
 )
 
 // Inventory summarizes a tree's contents (e.g., which programming
@@ -28,45 +23,31 @@ type Lang struct {
 	TotalBytes uint64 `json:"TotalBytes,omitempty"`
 }
 
-// minFileBytes is the minimum byte size prefix for each file to read when using file contents for
-// language detection.
-const minFileBytes = 16 * 1024
-
-// detect performs an inventory of the file passed in. If readFile is provided, the language
-// detection uses heuristics based on the file content for greater accuracy.
-func detect(ctx context.Context, file os.FileInfo, readFile func(ctx context.Context, path string, minBytes int64) ([]byte, error)) (string, error) {
-	if !file.Mode().IsRegular() || enry.IsVendor(file.Name()) {
-		return "", nil
+func sum(langTotalBytes map[string]uint64) Inventory {
+	sum := Inventory{Languages: make([]Lang, 0, len(langTotalBytes))}
+	for lang, totalBytes := range langTotalBytes {
+		sum.Languages = append(sum.Languages, Lang{Name: lang, TotalBytes: totalBytes})
 	}
-
-	// In many cases, GetLanguageByFilename can detect the language conclusively just from the
-	// filename. Only try to read the file (which is much slower) if needed.
-	matchedLang, safe := GetLanguageByFilename(file.Name())
-	if !safe && readFile != nil {
-		data, err := readFile(ctx, file.Name(), minFileBytes)
-		if err != nil {
-			return "", err
-		}
-		matchedLang = enry.GetLanguage(file.Name(), data)
-	}
-	return matchedLang, nil
+	sort.Slice(sum.Languages, func(i, j int) bool {
+		return sum.Languages[i].TotalBytes > sum.Languages[j].TotalBytes || (sum.Languages[i].TotalBytes == sum.Languages[j].TotalBytes && sum.Languages[i].Name < sum.Languages[j].Name)
+	})
+	return sum
 }
 
-// GetLanguageByFilename returns the guessed language for the named file (and safe == true if this
-// is very likely to be correct).
-func GetLanguageByFilename(name string) (language string, safe bool) {
-	language, safe = enry.GetLanguageByExtension(name)
-	if language == "GCC Machine Description" && filepath.Ext(name) == ".md" {
-		language = "Markdown" // override detection for .md
-	}
-	return language, safe
-}
+// Context defines the environment in which the inventory is computed.
+type Context struct {
+	// ReadTree is called to list the immediate children of a tree at path. The returned os.FileInfo
+	// values' Name method must return the full path (that can be passed to another ReadTree or
+	// ReadFile call), not just the basename.
+	ReadTree func(ctx context.Context, path string) ([]os.FileInfo, error)
 
-func init() {
-	// Treat .tsx and .jsx as TypeScript and JavaScript, respectively, instead of distinct languages
-	// called "TSX" and "JSX". This is more consistent with user expectations.
-	data.ExtensionsByLanguage["TypeScript"] = append(data.ExtensionsByLanguage["TypeScript"], ".tsx")
-	data.LanguagesByExtension[".tsx"] = []string{"TypeScript"}
-	data.ExtensionsByLanguage["JavaScript"] = append(data.ExtensionsByLanguage["JavaScript"], ".jsx")
-	data.LanguagesByExtension[".jsx"] = []string{"JavaScript"}
+	// ReadFile is called to read the partial contents of the file at path. At least the specified
+	// number of bytes must be returned (or the entire file, if it is smaller).
+	ReadFile func(ctx context.Context, path string, minBytes int64) ([]byte, error)
+
+	// CacheGet, if set, returns the cached inventory and true for the given tree, or false for a cache miss.
+	CacheGet func(os.FileInfo) (Inventory, bool)
+
+	// CacheSet, if set, stores the inventory in the cache for the given tree.
+	CacheSet func(os.FileInfo, Inventory)
 }
