@@ -206,11 +206,12 @@ func (r *gitTreeEntryResolver) IsSingleChild(ctx context.Context, args *gitTreeE
 
 type fileInfo struct {
 	path  string
+	size  int64
 	isDir bool
 }
 
 func (f fileInfo) Name() string { return f.path }
-func (f fileInfo) Size() int64  { return 0 }
+func (f fileInfo) Size() int64  { return f.size }
 func (f fileInfo) IsDir() bool  { return f.isDir }
 func (f fileInfo) Mode() os.FileMode {
 	if f.IsDir() {

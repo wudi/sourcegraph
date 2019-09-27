@@ -44,6 +44,8 @@ interface SearchResultsInfoBarProps
     // Whether the search query contains a repo: field.
     hasRepoishField: boolean
 
+    navbarSearchQuery: string
+
     location: H.Location
 }
 
