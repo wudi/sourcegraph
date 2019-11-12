@@ -5310,10 +5310,10 @@ typedarray@^0.0.6:
   resolved "https://registry.npmjs.org/typedarray/-/typedarray-0.0.6.tgz#867ac74e3864187b1d3d47d996a78ec5c8830777"
   integrity sha1-hnrHTjhkGHsdPUfZlqeOxciDB3c=
 
-typescript@^3.6.3:
-  version "3.6.3"
-  resolved "https://registry.npmjs.org/typescript/-/typescript-3.6.3.tgz#fea942fabb20f7e1ca7164ff626f1a9f3f70b4da"
-  integrity sha512-N7bceJL1CtRQ2RiG0AQME13ksR7DiuQh/QehubYcghzv20tnh+MQnQIuJddTmsbqYj+dztchykemz0zFzlvdQw==
+typescript@^3.8.0-dev:
+  version "3.8.0-dev.20191112"
+  resolved "https://registry.npmjs.org/typescript/-/typescript-3.8.0-dev.20191112.tgz#e6987e7c0178033212a757cf4e411808960a8e7a"
+  integrity sha512-Swh42of9n0+MOvoHW3elRoWw0vmcpVjf3YCjJeOwr44/C7DnCzCNWRL+CfB52YfidmQEX0QJ32cewg9nCNXEgA==
 
 uncss@^0.16.2:
   version "0.16.2"
