@@ -180,7 +180,7 @@ describe('External services API', () => {
             }
             const repos = ['gitlab.com/ase/ase']
             await ensureNoTestExternalServices(gqlClient, { ...externalService, deleteIfExist: true })
-            await waitForRepos(gqlClient, repos, config, true)
+            await waitForRepos(gqlClient, repos, { ...config, shouldNotExist: true })
             resourceManager.add(
                 'External service',
                 externalService.uniqueDisplayName,
