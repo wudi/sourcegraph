@@ -702,6 +702,20 @@ Referenced by:
 
 ```
 
+# Table "public.repo_permissions"
+```
+   Column   |           Type           | Modifiers 
+------------+--------------------------+-----------
+ repo_id    | integer                  | not null
+ permission | text                     | not null
+ user_ids   | bytea                    | not null
+ provider   | text                     | not null
+ updated_at | timestamp with time zone | not null
+Indexes:
+    "repo_permissions_perm_provider_unique" UNIQUE CONSTRAINT, btree (repo_id, permission, provider)
+
+```
+
 # Table "public.saved_queries"
 ```
       Column      |           Type           | Modifiers 
@@ -841,6 +855,20 @@ Foreign-key constraints:
 
 ```
 
+# Table "public.user_pending_permissions"
+```
+   Column    |           Type           | Modifiers 
+-------------+--------------------------+-----------
+ bind_id     | text                     | not null
+ permission  | text                     | not null
+ object_type | text                     | not null
+ object_ids  | bytea                    | not null
+ updated_at  | timestamp with time zone | not null
+Indexes:
+    "user_pending_permissions_perm_object_unique" UNIQUE CONSTRAINT, btree (bind_id, permission, object_type)
+
+```
+
 # Table "public.user_permissions"
 ```
    Column    |           Type           | Modifiers 
@@ -850,8 +878,9 @@ Foreign-key constraints:
  object_type | text                     | not null
  object_ids  | bytea                    | not null
  updated_at  | timestamp with time zone | not null
+ provider    | text                     | not null
 Indexes:
-    "user_permissions_perm_object_unique" UNIQUE CONSTRAINT, btree (user_id, permission, object_type)
+    "user_permissions_perm_object_provider_unique" UNIQUE CONSTRAINT, btree (user_id, permission, object_type, provider)
 
 ```
 
