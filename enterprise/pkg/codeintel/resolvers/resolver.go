@@ -26,11 +26,7 @@ func NewResolver() graphqlbackend.CodeIntelResolver {
 //
 // Dump Node Resolvers
 
-func (r *Resolver) LSIFDump(ctx context.Context, args *struct{ ID graphql.ID }) (graphqlbackend.LSIFDumpResolver, error) {
-	return r.LSIFDumpByGQLID(ctx, args.ID)
-}
-
-func (r *Resolver) LSIFDumpByGQLID(ctx context.Context, id graphql.ID) (graphqlbackend.LSIFDumpResolver, error) {
+func (r *Resolver) LSIFDumpByID(ctx context.Context, id graphql.ID) (graphqlbackend.LSIFDumpResolver, error) {
 	repoName, dumpID, err := unmarshalLSIFDumpGQLID(id)
 	if err != nil {
 		return nil, err
@@ -89,11 +85,7 @@ func (r *Resolver) LSIFDumps(ctx context.Context, args *graphqlbackend.LSIFDumps
 //
 // Job Node Resolvers
 
-func (r *Resolver) LSIFJob(ctx context.Context, args *struct{ ID graphql.ID }) (graphqlbackend.LSIFJobResolver, error) {
-	return r.LSIFJobByGQLID(ctx, args.ID)
-}
-
-func (r *Resolver) LSIFJobByGQLID(ctx context.Context, id graphql.ID) (graphqlbackend.LSIFJobResolver, error) {
+func (r *Resolver) LSIFJobByID(ctx context.Context, id graphql.ID) (graphqlbackend.LSIFJobResolver, error) {
 	jobID, err := unmarshalLSIFJobGQLID(id)
 	if err != nil {
 		return nil, err

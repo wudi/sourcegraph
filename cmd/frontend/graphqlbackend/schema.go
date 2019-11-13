@@ -1226,9 +1226,6 @@ type Query {
     # Look up a namespace by ID.
     namespace(id: ID!): Namespace
 
-    # Lookup an LSIF dump by ID.
-    lsifDump(id: ID!): LSIFDump
-
     # Retrieve the LSIF dumps for a repository.
     lsifDumps(
         # The repository ID that this LSIF dump belongs to.
@@ -1255,9 +1252,6 @@ type Query {
 
     # Retrieve counts of jobs by state in the LSIF work queue.
     lsifJobStats: LSIFJobStats!
-
-    # Look up an LSIF job by ID.
-    lsifJob(id: ID!): LSIFJob
 
     # Search for LSIF jobs by state and query term.
     lsifJobs(
