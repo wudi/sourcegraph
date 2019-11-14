@@ -145,15 +145,19 @@ export class Database {
             }
 
             for (const range of ranges) {
-                if (range.hoverResultId) {
-                    const contents = {
-                        kind: lsp.MarkupKind.Markdown,
-                        value: mustGet(document.hoverResults, range.hoverResultId, 'hoverResult'),
-                    }
-
-                    // Return first defined hover result for the inner-most range
-                    return { contents, range: createRange(range) }
+                if (!range.hoverResultId) {
+                    continue
                 }
+
+                this.logSpan(ctx, 'hover_result', { hoverResultId: range.hoverResultId })
+
+                const contents = {
+                    kind: lsp.MarkupKind.Markdown,
+                    value: mustGet(document.hoverResults, range.hoverResultId, 'hoverResult'),
+                }
+
+                // Return first defined hover result for the inner-most range
+                return { contents, range: createRange(range) }
             }
 
             return null
