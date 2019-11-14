@@ -96,7 +96,7 @@ async function main(logger: Logger): Promise<void> {
             level: 'debug',
             ignoredRoutes: ['/ping', '/healthz', '/metrics'],
             requestWhitelist: ['method', 'url', 'query'],
-            msg: 'request',
+            msg: 'Handled request',
         })
     )
     app.use(metricsMiddleware)
