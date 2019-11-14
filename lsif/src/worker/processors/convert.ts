@@ -5,7 +5,7 @@ import * as settings from '../settings'
 import { convertLsif } from '../importer/importer'
 import { createSilentLogger } from '../../shared/logging'
 import { dbFilename } from '../../shared/paths'
-import { logAndTraceCall, TracingContext } from '../../shared/tracing'
+import { logAndTraceCall, TracingContext, addTags } from '../../shared/tracing'
 import { XrepoDatabase } from '../../shared/xrepo/xrepo'
 import { Job } from 'bull'
 
@@ -25,7 +25,9 @@ export const createConvertJobProcessor = (
     { repository, commit, root, filename }: { repository: string; commit: string; root: string; filename: string },
     ctx: TracingContext
 ): Promise<void> => {
-    await logAndTraceCall(ctx, 'Converting LSIF data', async (ctx: TracingContext) => {
+    const newCtx = addTags(ctx, { repository, commit, root })
+
+    await logAndTraceCall(newCtx, 'Converting LSIF data', async (ctx: TracingContext) => {
         const input = fs.createReadStream(filename)
         const tempFile = path.join(settings.STORAGE_ROOT, constants.TEMP_DIR, path.basename(filename))
 
