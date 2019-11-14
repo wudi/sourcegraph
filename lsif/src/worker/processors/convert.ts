@@ -95,7 +95,7 @@ function purgeOldDumps(
             // While our current data usage is too big, find candidate dumps to delete
             const dump = await xrepoDatabase.getOldestPrunableDump()
             if (!dump) {
-                logger.warning(
+                logger.warn(
                     'Unable to reduce disk usage of the DB directory because deleting any single dump would drop in-use code intel for a repository.',
                     { currentSizeBytes, softMaximumSizeBytes: maximumSizeBytes }
                 )
