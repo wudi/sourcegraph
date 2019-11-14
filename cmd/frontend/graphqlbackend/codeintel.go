@@ -85,6 +85,7 @@ type LSIFJobConnectionResolver interface {
 
 var codeIntelOnlyInEnterprise = errors.New("lsif dumps and jobs are only available in enterprise")
 
+// TODO - move to repository.go
 func (r *RepositoryResolver) LSIFDumps(ctx context.Context, args *LSIFDumpsQueryArgs) (LSIFDumpConnectionResolver, error) {
 	// if r.codeIntelResolver == nil {
 	// return nil, codeIntelOnlyInEnterprise
