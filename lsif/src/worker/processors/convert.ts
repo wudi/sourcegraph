@@ -106,6 +106,7 @@ function purgeOldDumps(
             logger.info('Pruning dump', {
                 repository: dump.repository,
                 commit: dump.commit,
+                root: dump.root,
             })
 
             // Delete this dump and subtract its size from the current dir size
