@@ -13,11 +13,11 @@ var NewCodeIntelResolver func() CodeIntelResolver
 
 type CodeIntelResolver interface {
 	LSIFDumpByID(ctx context.Context, id graphql.ID) (LSIFDumpResolver, error)
-	LSIFDumps(ctx context.Context, args *LSIFDumpsQueryArgs) (LSIFDumpConnectionResolver, error)
+	LSIFDumps(ctx context.Context, args *LSIFRepositoryDumpsQueryArgs) (LSIFDumpConnectionResolver, error)
 	LSIFJobByID(ctx context.Context, id graphql.ID) (LSIFJobResolver, error)
 	LSIFJobs(ctx context.Context, args *LSIFJobsQueryArgs) (LSIFJobConnectionResolver, error)
 	LSIFJobStats(ctx context.Context) (LSIFJobStatsResolver, error)
-	LSIFJobStatsByGQLID(ctx context.Context, id graphql.ID) (LSIFJobStatsResolver, error)
+	LSIFJobStatsByID(ctx context.Context, id graphql.ID) (LSIFJobStatsResolver, error)
 }
 
 type LSIFDumpsQueryArgs struct {
@@ -100,11 +100,4 @@ func (r *schemaResolver) LSIFJobStats(ctx context.Context) (LSIFJobStatsResolver
 		return nil, codeIntelOnlyInEnterprise
 	}
 	return r.codeIntelResolver.LSIFJobStats(ctx)
-}
-
-func (r *schemaResolver) LSIFJobStatsByGQLID(ctx context.Context, id graphql.ID) (LSIFJobStatsResolver, error) {
-	if r.codeIntelResolver == nil {
-		return nil, codeIntelOnlyInEnterprise
-	}
-	return r.codeIntelResolver.LSIFJobStatsByGQLID(ctx, id)
 }

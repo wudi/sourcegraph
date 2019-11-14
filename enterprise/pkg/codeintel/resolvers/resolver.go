@@ -137,10 +137,10 @@ func (r *Resolver) LSIFJobs(ctx context.Context, args *graphqlbackend.LSIFJobsQu
 const lsifJobStatsGQLID = "lsifJobStats"
 
 func (r *Resolver) LSIFJobStats(ctx context.Context) (graphqlbackend.LSIFJobStatsResolver, error) {
-	return r.LSIFJobStatsByGQLID(ctx, marshalLSIFJobStatsGQLID(lsifJobStatsGQLID))
+	return r.LSIFJobStatsByID(ctx, marshalLSIFJobStatsGQLID(lsifJobStatsGQLID))
 }
 
-func (r *Resolver) LSIFJobStatsByGQLID(ctx context.Context, id graphql.ID) (graphqlbackend.LSIFJobStatsResolver, error) {
+func (r *Resolver) LSIFJobStatsByID(ctx context.Context, id graphql.ID) (graphqlbackend.LSIFJobStatsResolver, error) {
 	lsifJobStatsID, err := unmarshalLSIFJobStatsGQLID(id)
 	if err != nil {
 		return nil, err

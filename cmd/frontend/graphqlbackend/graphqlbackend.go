@@ -267,17 +267,17 @@ func (r *schemaResolver) nodeByID(ctx context.Context, id graphql.ID) (Node, err
 		if r.codeIntelResolver == nil {
 			return nil, codeIntelOnlyInEnterprise
 		}
-		return r.codeIntelResolver.LSIFDumpByGQLID(ctx, id)
+		return r.codeIntelResolver.LSIFDumpByID(ctx, id)
 	case "LSIFJobStats":
 		if r.codeIntelResolver == nil {
 			return nil, codeIntelOnlyInEnterprise
 		}
-		return r.codeIntelResolver.LSIFJobStatsByGQLID(ctx, id)
+		return r.codeIntelResolver.LSIFJobStatsByID(ctx, id)
 	case "LSIFJob":
 		if r.codeIntelResolver == nil {
 			return nil, codeIntelOnlyInEnterprise
 		}
-		return r.codeIntelResolver.LSIFJobByGQLID(ctx, id)
+		return r.codeIntelResolver.LSIFJobByID(ctx, id)
 	default:
 		return nil, errors.New("invalid id")
 	}
