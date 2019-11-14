@@ -110,7 +110,7 @@ async function main(logger: Logger): Promise<void> {
     // Error handler must be registered last
     app.use(errorHandler(logger))
 
-    app.listen(settings.HTTP_PORT, () => logger.debug('LSIF server listening on', { port: settings.HTTP_PORT }))
+    app.listen(settings.HTTP_PORT, () => logger.debug('LSIF API server listening on', { port: settings.HTTP_PORT }))
 }
 
 /**
