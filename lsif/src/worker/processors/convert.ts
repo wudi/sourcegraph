@@ -25,7 +25,7 @@ export const createConvertJobProcessor = (
     { repository, commit, root, filename }: { repository: string; commit: string; root: string; filename: string },
     ctx: TracingContext
 ): Promise<void> => {
-    await logAndTraceCall(ctx, 'converting LSIF data', async (ctx: TracingContext) => {
+    await logAndTraceCall(ctx, 'Converting LSIF data', async (ctx: TracingContext) => {
         const input = fs.createReadStream(filename)
         const tempFile = path.join(settings.STORAGE_ROOT, constants.TEMP_DIR, path.basename(filename))
 
@@ -34,7 +34,7 @@ export const createConvertJobProcessor = (
             const { packages, references } = await convertLsif(input, tempFile, ctx)
 
             // Add packages and references to the xrepo db
-            const dump = await logAndTraceCall(ctx, 'populating cross-repo database', () =>
+            const dump = await logAndTraceCall(ctx, 'Populating cross-repo database', () =>
                 xrepoDatabase.addPackagesAndReferences(
                     repository,
                     commit,
@@ -103,7 +103,7 @@ function purgeOldDumps(
                 break
             }
 
-            logger.debug('pruning dump', {
+            logger.info('Pruning dump', {
                 repository: dump.repository,
                 commit: dump.commit,
             })

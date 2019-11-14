@@ -705,11 +705,11 @@ export class Backend {
         file: string,
         ctx: TracingContext = {}
     ): Promise<{ database: Database; dump: xrepoModels.LsifDump; ctx: TracingContext }> {
-        return logAndTraceCall(ctx, 'loading closest database', async ctx => {
+        return logAndTraceCall(ctx, 'Loading closest database', async ctx => {
             // Determine the closest commit that we actually have LSIF data for. If the commit is
             // not tracked, then commit data is requested from gitserver and insert the ancestors
             // data for this commit.
-            const dump = await logAndTraceCall(ctx, 'determining closest commit', (ctx: TracingContext) =>
+            const dump = await logAndTraceCall(ctx, 'Determining closest commit', (ctx: TracingContext) =>
                 this.xrepoDatabase.findClosestDump(repository, commit, file, ctx, this.fetchConfiguration().gitServers)
             )
             if (!dump) {

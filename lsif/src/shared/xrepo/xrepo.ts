@@ -858,10 +858,10 @@ export class XrepoDatabase {
         }
 
         const gitserverUrl = addrFor(repository, gitserverUrls)
-        const commits = await logAndTraceCall(ctx, 'querying commits', () =>
+        const commits = await logAndTraceCall(ctx, 'Querying commits', () =>
             getCommitsNear(gitserverUrl, repository, commit)
         )
-        await logAndTraceCall(ctx, 'updating commits', () => this.updateCommits(repository, commits))
+        await logAndTraceCall(ctx, 'Updating commits', () => this.updateCommits(repository, commits))
     }
 
     /**
@@ -933,7 +933,7 @@ export class XrepoDatabase {
         const tips = new Map<string, string>()
         for (const batch of chunk(factories, batchSize)) {
             // Perform this batch of calls to the appropriate gitserver instance
-            const responses = await logAndTraceCall(ctx, 'getting repository metadata', () =>
+            const responses = await logAndTraceCall(ctx, 'Getting repository metadata', () =>
                 Promise.all(batch.map(factory => factory()))
             )
 

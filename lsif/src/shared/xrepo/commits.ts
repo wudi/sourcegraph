@@ -126,7 +126,7 @@ async function gitserverExec(gitserverUrl: string, repository: string, args: str
         // Prevent this from happening again:
         // https://github.com/sourcegraph/sourcegraph/pull/5941
         // https://github.com/sourcegraph/sourcegraph/pull/6548
-        throw new Error('gitserver commands should not be prefixed with `git`')
+        throw new Error('Gitserver commands should not be prefixed with `git`')
     }
 
     // Perform request - this may fail with a 404 or 500
