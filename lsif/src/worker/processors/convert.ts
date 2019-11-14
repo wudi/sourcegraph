@@ -5,7 +5,7 @@ import * as settings from '../settings'
 import { convertLsif } from '../importer/importer'
 import { createSilentLogger } from '../../shared/logging'
 import { dbFilename } from '../../shared/paths'
-import { logAndTraceCall, TracingContext, addTags } from '../../shared/tracing'
+import { TracingContext, addTags } from '../../shared/tracing'
 import { XrepoDatabase } from '../../shared/xrepo/xrepo'
 import { Job } from 'bull'
 
@@ -26,41 +26,37 @@ export const createConvertJobProcessor = (
     ctx: TracingContext
 ): Promise<void> => {
     const { logger = createSilentLogger(), span } = addTags(ctx, { repository, commit, root })
+    const input = fs.createReadStream(filename)
+    const tempFile = path.join(settings.STORAGE_ROOT, constants.TEMP_DIR, path.basename(filename))
 
-    await logAndTraceCall({ logger, span }, 'Converting LSIF data', async (ctx: TracingContext) => {
-        const input = fs.createReadStream(filename)
-        const tempFile = path.join(settings.STORAGE_ROOT, constants.TEMP_DIR, path.basename(filename))
+    try {
+        // Create database in a temp path
+        const { packages, references } = await convertLsif(input, tempFile, { logger, span })
 
-        try {
-            // Create database in a temp path
-            const { packages, references } = await convertLsif(input, tempFile, ctx)
+        // Insert dump and add packages and references to the xrepo db
+        const dump = await xrepoDatabase.addPackagesAndReferences(
+            repository,
+            commit,
+            root,
+            new Date(job.timestamp),
+            packages,
+            references,
+            ctx
+        )
 
-            // Add packages and references to the xrepo db
-            const dump = await logAndTraceCall(ctx, 'Populating cross-repo database', () =>
-                xrepoDatabase.addPackagesAndReferences(
-                    repository,
-                    commit,
-                    root,
-                    new Date(job.timestamp),
-                    packages,
-                    references
-                )
-            )
+        // Move the temp file where it can be found by the server
+        await fs.rename(tempFile, dbFilename(settings.STORAGE_ROOT, dump.id, repository, commit))
 
-            // Move the temp file where it can be found by the server
-            await fs.rename(tempFile, dbFilename(settings.STORAGE_ROOT, dump.id, repository, commit))
-
-            logger.info('Created dump', {
-                repository: dump.repository,
-                commit: dump.commit,
-                root: dump.root,
-            })
-        } catch (error) {
-            // Don't leave busted artifacts
-            await fs.unlink(tempFile)
-            throw error
-        }
-    })
+        logger.info('Created dump', {
+            repository: dump.repository,
+            commit: dump.commit,
+            root: dump.root,
+        })
+    } catch (error) {
+        // Don't leave busted artifacts
+        await fs.unlink(tempFile)
+        throw error
+    }
 
     // Remove input
     await fs.unlink(filename)
