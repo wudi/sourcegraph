@@ -146,7 +146,7 @@ export class Backend {
     public async exists(repository: string, commit: string, path: string, ctx: TracingContext = {}): Promise<boolean> {
         try {
             const { database, dump } = await this.loadClosestDatabase(repository, commit, path, ctx)
-            return await database.exists(this.pathToDatabase(dump.root, path))
+            return await database.exists(this.pathToDatabase(dump.root, path), ctx)
         } catch (error) {
             if (error instanceof NoLSIFDumpError) {
                 return false
