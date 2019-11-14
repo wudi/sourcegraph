@@ -57,7 +57,7 @@ func (r *Resolver) LSIFDumpByID(ctx context.Context, id graphql.ID) (graphqlback
 // dependent on the limit, so we can overwrite this value if the user has changed its
 // value since making the last request.
 
-func (r *Resolver) LSIFDumps(ctx context.Context, args *graphqlbackend.LSIFDumpsQueryArgs) (graphqlbackend.LSIFDumpConnectionResolver, error) {
+func (r *Resolver) LSIFDumps(ctx context.Context, args *graphqlbackend.LSIFRepositoryDumpsQueryArgs) (graphqlbackend.LSIFDumpConnectionResolver, error) {
 	opt := LSIFDumpsListOptions{
 		Repository:      args.Repository,
 		Query:           args.Query,

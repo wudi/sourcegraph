@@ -22,10 +22,14 @@ type CodeIntelResolver interface {
 
 type LSIFDumpsQueryArgs struct {
 	graphqlutil.ConnectionArgs
-	Repository      graphql.ID
 	Query           *string
 	IsLatestForRepo *bool
 	After           *string
+}
+
+type LSIFRepositoryDumpsQueryArgs struct {
+	*LSIFDumpsQueryArgs
+	Repository graphql.ID
 }
 
 type LSIFJobsQueryArgs struct {
@@ -81,11 +85,22 @@ type LSIFJobConnectionResolver interface {
 
 var codeIntelOnlyInEnterprise = errors.New("lsif dumps and jobs are only available in enterprise")
 
-func (r *schemaResolver) LSIFDumps(ctx context.Context, args *LSIFDumpsQueryArgs) (LSIFDumpConnectionResolver, error) {
-	if r.codeIntelResolver == nil {
+func (r *RepositoryResolver) LSIFDumps(ctx context.Context, args *LSIFDumpsQueryArgs) (LSIFDumpConnectionResolver, error) {
+	// if r.codeIntelResolver == nil {
+	// return nil, codeIntelOnlyInEnterprise
+	// }
+	if NewCodeIntelResolver == nil {
 		return nil, codeIntelOnlyInEnterprise
 	}
-	return r.codeIntelResolver.LSIFDumps(ctx, args)
+
+	// return r.codeIntelResolver.LSIFDumps(ctx, &LSIFRepositoryDumpsQueryArgs{
+	// 	LSIFDumpsQueryArgs: args,
+	// 	Repository:         r.ID(),
+	// })
+	return NewCodeIntelResolver().LSIFDumps(ctx, &LSIFRepositoryDumpsQueryArgs{
+		LSIFDumpsQueryArgs: args,
+		Repository:         r.ID(),
+	})
 }
 
 func (r *schemaResolver) LSIFJobs(ctx context.Context, args *LSIFJobsQueryArgs) (LSIFJobConnectionResolver, error) {
