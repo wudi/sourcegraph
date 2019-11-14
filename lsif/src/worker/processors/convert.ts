@@ -25,9 +25,9 @@ export const createConvertJobProcessor = (
     { repository, commit, root, filename }: { repository: string; commit: string; root: string; filename: string },
     ctx: TracingContext
 ): Promise<void> => {
-    const newCtx = addTags(ctx, { repository, commit, root })
+    const { logger = createSilentLogger(), span } = addTags(ctx, { repository, commit, root })
 
-    await logAndTraceCall(newCtx, 'Converting LSIF data', async (ctx: TracingContext) => {
+    await logAndTraceCall({ logger, span }, 'Converting LSIF data', async (ctx: TracingContext) => {
         const input = fs.createReadStream(filename)
         const tempFile = path.join(settings.STORAGE_ROOT, constants.TEMP_DIR, path.basename(filename))
 
@@ -49,6 +49,12 @@ export const createConvertJobProcessor = (
 
             // Move the temp file where it can be found by the server
             await fs.rename(tempFile, dbFilename(settings.STORAGE_ROOT, dump.id, repository, commit))
+
+            logger.info('Created dump', {
+                repository: dump.repository,
+                commit: dump.commit,
+                root: dump.root,
+            })
         } catch (error) {
             // Don't leave busted artifacts
             await fs.unlink(tempFile)
@@ -56,19 +62,35 @@ export const createConvertJobProcessor = (
         }
     })
 
-    // Update commit parentage information for this commit
-    await xrepoDatabase.discoverAndUpdateCommit({
-        repository,
-        commit,
-        gitserverUrls: fetchConfiguration().gitServers,
-        ctx,
-    })
-
     // Remove input
     await fs.unlink(filename)
 
-    // Clean up disk space if necessary
-    await purgeOldDumps(settings.STORAGE_ROOT, xrepoDatabase, settings.DBS_DIR_MAXIMUM_SIZE_BYTES, ctx)
+    try {
+        // Update commit parentage information for this commit
+        await xrepoDatabase.discoverAndUpdateCommit({
+            repository,
+            commit,
+            gitserverUrls: fetchConfiguration().gitServers,
+            ctx: { logger, span },
+        })
+    } catch (error) {
+        // At this point, the job has already completed successfully. Catch
+        // any error that happens from `discoverAndUpdateCommit` and swallow
+        // it. There is no need to log here as any error that occurs within
+        // the call will already be logged by `instrument` blocks.
+    }
+
+    try {
+        // Clean up disk space if necessary - use original tracing context so the labels
+        // repository, commit, and root do not get ambiguous between the job arguments
+        // and the properties of the dump being purged.
+        await purgeOldDumps(settings.STORAGE_ROOT, xrepoDatabase, settings.DBS_DIR_MAXIMUM_SIZE_BYTES, ctx)
+    } catch (error) {
+        // At this point, the job has already completed successfully. Catch
+        // any error that happens from `purgeOldDumps` and swallow it. There
+        // is no need to log here as any error that occurs within the call
+        // will already be logged by `instrument` blocks.
+    }
 }
 
 /**
