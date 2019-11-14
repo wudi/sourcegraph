@@ -2,6 +2,8 @@ import * as crypto from 'crypto'
 import got from 'got'
 import { MAX_COMMITS_PER_UPDATE } from '../constants'
 import { TracingContext, logAndTraceCall } from '../tracing'
+import { instrument } from '../metrics'
+import * as metrics from './metrics'
 
 /**
  * Determine the gitserver that holds data for the given repository. This matches the
@@ -144,24 +146,25 @@ function gitserverExec(
         throw new Error('Gitserver commands should not be prefixed with `git`')
     }
 
-    // TODO - instrument this as well
-    return logAndTraceCall(ctx, 'Executing git command', async () => {
-        // Perform request - this may fail with a 404 or 500
-        const resp = await got(new URL(`http://${gitserverUrl}/exec`).href, {
-            body: JSON.stringify({ repo: repository, args }),
+    return logAndTraceCall(ctx, 'Executing git command', () =>
+        instrument(metrics.gitserverDurationHistogram, metrics.gitserverErrorsCounter, async () => {
+            // Perform request - this may fail with a 404 or 500
+            const resp = await got(new URL(`http://${gitserverUrl}/exec`).href, {
+                body: JSON.stringify({ repo: repository, args }),
+            })
+
+            // Read trailers on a 200-level response
+            const status = resp.trailers['x-exec-exit-status']
+            const stderr = resp.trailers['x-exec-stderr']
+
+            // Determine if underlying git command failed and throw an error
+            // in that case. Status will be undefined in some of our tests and
+            // will be the process exit code (given as a string) otherwise.
+            if (status !== undefined && status !== '0') {
+                throw new Error(`Failed to run git command ${['git', ...args].join(' ')}: ${stderr}`)
+            }
+
+            return resp.body
         })
-
-        // Read trailers on a 200-level response
-        const status = resp.trailers['x-exec-exit-status']
-        const stderr = resp.trailers['x-exec-stderr']
-
-        // Determine if underlying git command failed and throw an error
-        // in that case. Status will be undefined in some of our tests and
-        // will be the process exit code (given as a string) otherwise.
-        if (status !== undefined && status !== '0') {
-            throw new Error(`Failed to run git command ${['git', ...args].join(' ')}: ${stderr}`)
-        }
-
-        return resp.body
-    })
+    )
 }
