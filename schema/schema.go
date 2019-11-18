@@ -710,6 +710,14 @@ type ParentSourcegraph struct {
 	Url string `json:"url,omitempty"`
 }
 
+// PermissionsUserMapping description: Settings for Sourcegraph permissions, which allow the site admin to explicitly manage repository permissions via GraphQL APIs. This setting cannot be enabled when any other code host authorization provider is in use.
+type PermissionsUserMapping struct {
+	// BindID description: The type of identifier to identify a user. The default is "email", which uses the email address to identify a user. Use "username" to use username to identify a user. Change of this setting will wipe out any permissions that are not yet granted to an actual user.
+	BindID string `json:"bindID,omitempty"`
+	// Enabled description: Whether permissions user mapping is enabled. All of authorization providers configured in the external services must be disabled before enabling this.
+	Enabled bool `json:"enabled,omitempty"`
+}
+
 // Phabricator description: Phabricator instance that integrates with this Gitolite instance
 type Phabricator struct {
 	// CallsignCommand description:  Bash command that prints out the Phabricator callsign for a Gitolite repository. This will be run with environment variable $REPO set to the name of the repository and used to obtain the Phabricator metadata for a Gitolite repository. (Note: this requires `bash` to be installed.)
@@ -900,6 +908,8 @@ type SiteConfiguration struct {
 	MaxReposToSearch int `json:"maxReposToSearch,omitempty"`
 	// ParentSourcegraph description: URL to fetch unreachable repository details from. Defaults to "https://sourcegraph.com"
 	ParentSourcegraph *ParentSourcegraph `json:"parentSourcegraph,omitempty"`
+	// PermissionsUserMapping description: Settings for Sourcegraph permissions, which allow the site admin to explicitly manage repository permissions via GraphQL APIs. This setting cannot be enabled when any other code host authorization provider is in use.
+	PermissionsUserMapping *PermissionsUserMapping `json:"permissions.userMapping,omitempty"`
 	// RepoListUpdateInterval description: Interval (in minutes) for checking code hosts (such as GitHub, Gitolite, etc.) for new repositories.
 	RepoListUpdateInterval int `json:"repoListUpdateInterval,omitempty"`
 	// SearchIndexEnabled description: Whether indexed search is enabled. If unset Sourcegraph detects the environment to decide if indexed search is enabled. Indexed search is RAM heavy, and is disabled by default in the single docker image. All other environments will have it enabled by default. The size of all your repository working copies is the amount of additional RAM required.
