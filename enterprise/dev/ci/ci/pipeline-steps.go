@@ -102,24 +102,41 @@ func addBrowserExt(pipeline *bk.Pipeline) {
 }
 
 // Adds the shared frontend tests (shared between the web app and browser extension).
-func addSharedTests(pipeline *bk.Pipeline) {
-	// Shared tests
-	pipeline.AddStep(":jest:",
-		bk.Cmd("dev/ci/yarn-test.sh shared"),
-		bk.Cmd("bash <(curl -s https://codecov.io/bash) -c -F typescript -F unit"))
+func addSharedTests(c Config) func(pipeline *bk.Pipeline) {
+	return func(pipeline *bk.Pipeline) {
+		// Client integration tests
+		pipeline.AddStep(":puppeteer::electric_plug:",
+			bk.Env("PUPPETEER_SKIP_CHROMIUM_DOWNLOAD", ""),
+			bk.Cmd("COVERAGE_INSTRUMENT=true dev/ci/yarn-run.sh build-web"),
+			bk.Cmd("yarn run cover-integration"),
+			bk.Cmd("yarn nyc report -r json"),
+			bk.Cmd("bash <(curl -s https://codecov.io/bash) -c -F typescript -F integration"),
+			bk.ArtifactPaths("./puppeteer/*.png"))
 
-	// Storybook coverage
-	pipeline.AddStep(":storybook::codecov:",
-		bk.Env("PUPPETEER_SKIP_CHROMIUM_DOWNLOAD", ""),
-		bk.Cmd("COVERAGE_INSTRUMENT=true dev/ci/yarn-run.sh build-storybook"),
-		bk.Cmd("yarn run cover-storybook"),
-		bk.Cmd("yarn nyc report -r json"),
-		bk.Cmd("bash <(curl -s https://codecov.io/bash) -c -F typescript -F storybook"))
+		// Storybook coverage
+		pipeline.AddStep(":storybook::codecov:",
+			bk.Env("PUPPETEER_SKIP_CHROMIUM_DOWNLOAD", ""),
+			bk.Cmd("COVERAGE_INSTRUMENT=true dev/ci/yarn-run.sh build-storybook"),
+			bk.Cmd("yarn run cover-storybook"),
+			bk.Cmd("yarn nyc report -r json"),
+			bk.Cmd("bash <(curl -s https://codecov.io/bash) -c -F typescript -F storybook"))
 
-	// Upload storybook to Percy
-	pipeline.AddStep(":storybook::percy:",
-		bk.Env("PUPPETEER_SKIP_CHROMIUM_DOWNLOAD", ""),
-		bk.Cmd("dev/ci/yarn-run.sh build-storybook percy-storybook"))
+		// Upload storybook to Chromatic
+		chromaticCommand := "yarn chromatic --exit-zero-on-changes --exit-once-uploaded"
+		if !c.isPR() {
+			chromaticCommand += " --auto-accept-changes"
+		}
+		pipeline.AddStep(":chromatic:",
+			bk.AutomaticRetry(5),
+			bk.Cmd("yarn --mutex network --frozen-lockfile --network-timeout 60000"),
+			bk.Cmd("yarn gulp generate"),
+			bk.Cmd(chromaticCommand))
+
+		// Shared tests
+		pipeline.AddStep(":jest:",
+			bk.Cmd("dev/ci/yarn-test.sh shared"),
+			bk.Cmd("bash <(curl -s https://codecov.io/bash) -c -F typescript -F unit"))
+	}
 }
 
 // Adds PostgreSQL backcompat tests.
@@ -267,7 +284,7 @@ func addDockerImages(c Config, final bool) func(*bk.Pipeline) {
 				addDockerImage(c, dockerImage, false)(pipeline)
 			}
 			pipeline.AddWait()
-		case c.branch == "master":
+		case c.branch == "master" || c.branch == "main":
 			for _, dockerImage := range allDockerImages {
 				addDockerImage(c, dockerImage, true)(pipeline)
 			}

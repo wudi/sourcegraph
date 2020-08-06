@@ -24,6 +24,10 @@ var tests = []test{
 		Name:  `Global search, repo search by name, case yes, nonzero result`,
 		Query: `repo:^github\.com/rvantonderp/adjust-go-wrk$ String case:yes count:1 stable:yes`,
 	},
+	{
+		Name:  `True is an alias for yes when fork is set`,
+		Query: `fork:true repo:github\.com/rvantonderp/(beego-mux|sgtest-mux)`,
+	},
 	// Text search, focused to repo.
 	{
 		Name:  `Repo search, non-master branch, nonzero result`,
@@ -59,7 +63,7 @@ var tests = []test{
 	// Global simple text search.
 	{
 		Name:  `Global search, zero results`,
-		Query: `asdfalksd+jflaksjdfklas patterntype:literal`,
+		Query: `asdfalksd+jflaksjdfklas patterntype:literal -repo:sourcegraph`,
 	},
 	{
 		Name:  `Global search, double-quoted pattern, nonzero result`,
@@ -109,6 +113,10 @@ var tests = []test{
 		Name:  `Structural search quotes are interpreted literally`,
 		Query: `repo:^github\.com/rvantonderp/auth0-go-jwt-middleware$ file:^README\.md "This :[_] authenticated :[_]" patterntype:structural`,
 	},
+	{
+		Name:  `Alert to activate structural search mode`,
+		Query: `repo:^github\.com/rvantonderp/adjust-go-wrk$ patterntype:literal i can't :[believe] it's not butter`,
+	},
 	// Repo search (part 2).
 	{
 		Name:  `Global search, archived excluded, zero results`,
@@ -137,6 +145,10 @@ var tests = []test{
 	{
 		Name:  `Global search, exclude counts for fork and archive`,
 		Query: `repo:mux|archive|caddy`,
+	},
+	{
+		Name:  `Repo visibility`,
+		Query: `repo:github.com/rvantonderp/adjust-go-wrk visibility:public`,
 	},
 	// And/Or queries.
 	{
@@ -266,6 +278,10 @@ var tests = []test{
 	{
 		Name:  `Intersect file matches per file against an empty result set`,
 		Query: `repo:^github\.com/rvantonderp/DirectXMan12-k8s-prometheus-adapter$@4b5788e file:^cmd/adapter/adapter\.go func and doesnotexist838338`,
+	},
+	{
+		Name:  `Dedupe union operation`,
+		Query: `file:cors_filter.go|ginkgo_dsl.go|funcs.go repo:rvantonderp/DirectXMan12-k8s-prometheus-adapter  :[[i]], :[[x]] := range :[src.] { :[[dst]][:[i]] = :[[x]] } or if strings.ToLower(:[s1]) == strings.ToLower(:[s2]) patterntype:structural`,
 	},
 }
 

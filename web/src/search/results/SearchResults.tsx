@@ -30,15 +30,16 @@ import { SearchResultsFilterBars, SearchScopeWithOptionalName } from './SearchRe
 import { SearchResultsList } from './SearchResultsList'
 import { SearchResultTypeTabs } from './SearchResultTypeTabs'
 import { buildSearchURLQuery } from '../../../../shared/src/util/url'
-import { convertPlainTextToInteractiveQuery } from '../input/helpers'
 import { VersionContextProps } from '../../../../shared/src/search/util'
 import { VersionContext } from '../../schema/site.schema'
 import AlertOutlineIcon from 'mdi-react/AlertOutlineIcon'
 import CloseIcon from 'mdi-react/CloseIcon'
-import { Services } from '../../../../shared/src/api/client/services'
+import { Remote } from 'comlink'
+import { FlatExtHostAPI } from '../../../../shared/src/api/contract'
+import { DeployType } from '../../jscontext'
 
 export interface SearchResultsProps
-    extends ExtensionsControllerProps<'executeCommand' | 'services'>,
+    extends ExtensionsControllerProps<'executeCommand' | 'extHostAPI' | 'services'>,
         PlatformContextProps<'forceUpdateTooltip' | 'settings'>,
         SettingsCascadeProps,
         TelemetryProps,
@@ -58,7 +59,7 @@ export interface SearchResultsProps
         version: string,
         patternType: GQL.SearchPatternType,
         versionContext: string | undefined,
-        services: Services
+        extensionHostPromise: Promise<Remote<FlatExtHostAPI>>
     ) => Observable<GQL.ISearchResults | ErrorLike>
     isSourcegraphDotCom: boolean
     deployType: DeployType
@@ -112,17 +113,14 @@ export class SearchResults extends React.Component<SearchResultsProps, SearchRes
         if (!patternType) {
             // If the patternType query parameter does not exist in the URL or is invalid, redirect to a URL which
             // has patternType=regexp appended. This is to ensure old URLs before requiring patternType still work.
-
-            const query = parseSearchURLQuery(this.props.location.search) || ''
-            const { navbarQuery, filtersInQuery } = convertPlainTextToInteractiveQuery(query)
+            const query = parseSearchURLQuery(this.props.location.search) ?? ''
             const newLocation =
                 '/search?' +
                 buildSearchURLQuery(
-                    navbarQuery,
+                    query,
                     GQL.SearchPatternType.regexp,
                     this.props.caseSensitive,
-                    this.props.versionContext,
-                    filtersInQuery
+                    this.props.versionContext
                 )
             this.props.history.replace(newLocation)
         }
@@ -175,7 +173,7 @@ export class SearchResults extends React.Component<SearchResultsProps, SearchRes
                                     LATEST_VERSION,
                                     patternType,
                                     resolveVersionContext(versionContext, this.props.availableVersionContexts),
-                                    this.props.extensionsController.services
+                                    this.props.extensionsController.extHostAPI
                                 )
                                 .pipe(
                                     // Log telemetry
@@ -295,7 +293,7 @@ export class SearchResults extends React.Component<SearchResultsProps, SearchRes
             (isSettingsValid<Settings>(this.props.settingsCascade) && this.props.settingsCascade.final.quicklinks) || []
 
         return (
-            <div className="e2e-search-results search-results d-flex flex-column w-100">
+            <div className="test-search-results search-results d-flex flex-column w-100">
                 <PageTitle key="page-title" title={query} />
                 {!this.props.interactiveSearchMode && (
                     <SearchResultsFilterBars

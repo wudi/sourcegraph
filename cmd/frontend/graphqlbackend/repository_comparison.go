@@ -20,15 +20,23 @@ import (
 	"github.com/sourcegraph/sourcegraph/internal/vcs/git"
 )
 
-type RepositoryComparisonConnectionResolver interface {
-	Nodes(ctx context.Context) ([]*RepositoryComparisonResolver, error)
-	TotalCount(ctx context.Context) (int32, error)
-	PageInfo(ctx context.Context) (*graphqlutil.PageInfo, error)
+type RepositoryComparisonInput struct {
+	Base         *string
+	Head         *string
+	FetchMissing bool
 }
 
-type RepositoryComparisonInput struct {
-	Base *string
-	Head *string
+type FileDiffsConnectionArgs struct {
+	First *int32
+	After *string
+}
+
+type RepositoryComparisonInterface interface {
+	BaseRepository() *RepositoryResolver
+	FileDiffs(ctx context.Context, args *FileDiffsConnectionArgs) (FileDiffConnection, error)
+
+	ToRepositoryComparison() (*RepositoryComparisonResolver, bool)
+	ToPreviewRepositoryComparison() (PreviewRepositoryComparisonResolver, bool)
 }
 
 type FileDiffConnection interface {
@@ -68,20 +76,23 @@ func NewRepositoryComparison(ctx context.Context, r *RepositoryResolver, args *R
 			return nil, nil
 		}
 
+		opt := git.ResolveRevisionOptions{
+			NoEnsureRevision: !args.FetchMissing,
+		}
 		// Optimistically fetch using revspec
-		commit, err := git.GetCommit(ctx, repo, nil, api.CommitID(revspec))
+		commit, err := git.GetCommit(ctx, repo, nil, api.CommitID(revspec), opt)
 		if err == nil {
 			return toGitCommitResolver(r, commit), nil
 		}
 
 		// Call ResolveRevision to trigger fetches from remote (in case base/head commits don't
 		// exist).
-		commitID, err := git.ResolveRevision(ctx, repo, nil, revspec, nil)
+		commitID, err := git.ResolveRevision(ctx, repo, nil, revspec, opt)
 		if err != nil {
 			return nil, err
 		}
 
-		commit, err = git.GetCommit(ctx, repo, nil, commitID)
+		commit, err = git.GetCommit(ctx, repo, nil, commitID, opt)
 		if err != nil {
 			return nil, err
 		}
@@ -145,6 +156,17 @@ type RepositoryComparisonResolver struct {
 	repo                     *RepositoryResolver
 }
 
+// Type guard.
+var _ RepositoryComparisonInterface = &RepositoryComparisonResolver{}
+
+func (r *RepositoryComparisonResolver) ToPreviewRepositoryComparison() (PreviewRepositoryComparisonResolver, bool) {
+	return nil, false
+}
+
+func (r *RepositoryComparisonResolver) ToRepositoryComparison() (*RepositoryComparisonResolver, bool) {
+	return r, true
+}
+
 func (r *RepositoryComparisonResolver) BaseRepository() *RepositoryResolver { return r.repo }
 
 func (r *RepositoryComparisonResolver) HeadRepository() *RepositoryResolver { return r.repo }
@@ -168,16 +190,14 @@ func (r *RepositoryComparisonResolver) Commits(
 	}
 }
 
-func (r *RepositoryComparisonResolver) FileDiffs(
-	args *FileDiffsConnectionArgs,
-) FileDiffConnection {
+func (r *RepositoryComparisonResolver) FileDiffs(ctx context.Context, args *FileDiffsConnectionArgs) (FileDiffConnection, error) {
 	return NewFileDiffConnectionResolver(
 		r.base,
 		r.head,
 		args,
 		computeRepositoryComparisonDiff(r),
 		repositoryComparisonNewFile,
-	)
+	), nil
 }
 
 // repositoryComparisonNewFile is the default NewFileFunc used by

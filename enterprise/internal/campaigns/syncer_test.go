@@ -3,10 +3,12 @@ package campaigns
 import (
 	"container/heap"
 	"context"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/pkg/errors"
 	"github.com/sourcegraph/sourcegraph/cmd/repo-updater/repos"
 	"github.com/sourcegraph/sourcegraph/internal/api"
 	"github.com/sourcegraph/sourcegraph/internal/campaigns"
@@ -174,11 +176,126 @@ func TestChangesetPriorityQueue(t *testing.T) {
 	}
 }
 
+func TestPrioritizeChangesetsWithoutDiffStats(t *testing.T) {
+	for name, tc := range map[string]struct {
+		listChangesets func(context.Context, ListChangesetsOpts) (campaigns.Changesets, int64, error)
+		wantError      bool
+		wantIDs        []int64
+	}{
+		"ListChangesets error": {
+			listChangesets: func(ctx context.Context, opts ListChangesetsOpts) (campaigns.Changesets, int64, error) {
+				return nil, 0, errors.New("hello!")
+			},
+			wantError: true,
+		},
+		"empty list": {
+			listChangesets: func(ctx context.Context, opts ListChangesetsOpts) (campaigns.Changesets, int64, error) {
+				return []*campaigns.Changeset{}, 0, nil
+			},
+		},
+		"non-empty list with published changesets": {
+			listChangesets: func(ctx context.Context, opts ListChangesetsOpts) (campaigns.Changesets, int64, error) {
+				return []*campaigns.Changeset{
+					{
+						ID:               1,
+						ReconcilerState:  campaigns.ReconcilerStateCompleted,
+						PublicationState: campaigns.ChangesetPublicationStatePublished,
+					},
+					{
+						ID:               2,
+						ReconcilerState:  campaigns.ReconcilerStateCompleted,
+						PublicationState: campaigns.ChangesetPublicationStatePublished,
+					},
+				}, 0, nil
+			},
+			wantIDs: []int64{1, 2},
+		},
+		"non-empty list with unpublished changesets": {
+			listChangesets: func(ctx context.Context, opts ListChangesetsOpts) (campaigns.Changesets, int64, error) {
+				return []*campaigns.Changeset{
+					{
+						ID:               1,
+						ReconcilerState:  campaigns.ReconcilerStateCompleted,
+						PublicationState: campaigns.ChangesetPublicationStateUnpublished,
+					},
+					{
+						ID:               2,
+						ReconcilerState:  campaigns.ReconcilerStateCompleted,
+						PublicationState: campaigns.ChangesetPublicationStateUnpublished,
+					},
+				}, 0, nil
+			},
+			wantIDs: []int64{},
+		},
+		"non-empty list with processing changesets": {
+			listChangesets: func(ctx context.Context, opts ListChangesetsOpts) (campaigns.Changesets, int64, error) {
+				return []*campaigns.Changeset{
+					{
+						ID:               1,
+						ReconcilerState:  campaigns.ReconcilerStateProcessing,
+						PublicationState: campaigns.ChangesetPublicationStatePublished,
+					},
+					{
+						ID:               2,
+						ReconcilerState:  campaigns.ReconcilerStateProcessing,
+						PublicationState: campaigns.ChangesetPublicationStatePublished,
+					},
+				}, 0, nil
+			},
+			wantIDs: []int64{},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var wg sync.WaitGroup
+
+			syncer := &ChangesetSyncer{
+				SyncStore:      MockSyncStore{listChangesets: tc.listChangesets},
+				priorityNotify: make(chan []int64),
+			}
+
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				var (
+					ids  []int64
+					seen bool
+				)
+
+				for ids = range syncer.priorityNotify {
+					if seen {
+						t.Error("received more than one message on priorityNotify")
+					}
+					seen = true
+				}
+
+				if diff := cmp.Diff(ids, tc.wantIDs); diff != "" {
+					t.Errorf("invalid IDs received on the priorityNotify channel: have %+v; want %+v", ids, tc.wantIDs)
+				}
+			}()
+
+			err := syncer.prioritizeChangesetsWithoutDiffStats(context.Background())
+			if tc.wantError && err == nil {
+				t.Error("expected an error; got nil")
+			} else if !tc.wantError && err != nil {
+				t.Errorf("got unexpected error: %+v", err)
+			}
+
+			// We have to wait for the goroutine to exit lest we fail after this
+			// function is complete.
+			close(syncer.priorityNotify)
+			wg.Wait()
+		})
+	}
+}
+
 func TestSyncerRun(t *testing.T) {
 	t.Run("Sync due", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		now := time.Now()
 		store := MockSyncStore{
+			listChangesets: func(ctx context.Context, opts ListChangesetsOpts) (campaigns.Changesets, int64, error) {
+				return nil, 0, nil
+			},
 			listChangesetSyncData: func(ctx context.Context, opts ListChangesetSyncDataOpts) ([]campaigns.ChangesetSyncData, error) {
 				return []campaigns.ChangesetSyncData{
 					{
@@ -212,6 +329,7 @@ func TestSyncerRun(t *testing.T) {
 		defer cancel()
 		now := time.Now()
 		store := MockSyncStore{
+			listChangesets: mockListChangesets,
 			listChangesetSyncData: func(ctx context.Context, opts ListChangesetSyncDataOpts) ([]campaigns.ChangesetSyncData, error) {
 				return []campaigns.ChangesetSyncData{
 					{
@@ -243,6 +361,7 @@ func TestSyncerRun(t *testing.T) {
 		// Empty schedule but then we add an item
 		ctx, cancel := context.WithCancel(context.Background())
 		store := MockSyncStore{
+			listChangesets: mockListChangesets,
 			listChangesetSyncData: func(ctx context.Context, opts ListChangesetSyncDataOpts) ([]campaigns.ChangesetSyncData, error) {
 				return []campaigns.ChangesetSyncData{}, nil
 			},
@@ -270,67 +389,40 @@ func TestSyncerRun(t *testing.T) {
 
 func TestFilterSyncData(t *testing.T) {
 	testCases := []struct {
-		name      string
-		serviceID int64
-		data      []campaigns.ChangesetSyncData
-		want      []campaigns.ChangesetSyncData
+		name        string
+		codeHostURL string
+		data        []campaigns.ChangesetSyncData
+		want        []campaigns.ChangesetSyncData
 	}{
 		{
-			name:      "Empty",
-			serviceID: 1,
-			data:      []campaigns.ChangesetSyncData{},
-			want:      []campaigns.ChangesetSyncData{},
+			name:        "Empty",
+			codeHostURL: "https://example.com/",
+			data:        []campaigns.ChangesetSyncData{},
+			want:        []campaigns.ChangesetSyncData{},
 		},
 		{
-			name:      "single item, should match",
-			serviceID: 1,
+			name:        "single item, should match",
+			codeHostURL: "https://example.com/",
 			data: []campaigns.ChangesetSyncData{
 				{
-					ChangesetID:        1,
-					ExternalServiceIDs: []int64{1},
+					ChangesetID:           1,
+					RepoExternalServiceID: "https://example.com/",
 				},
 			},
 			want: []campaigns.ChangesetSyncData{
 				{
-					ChangesetID:        1,
-					ExternalServiceIDs: []int64{1},
+					ChangesetID:           1,
+					RepoExternalServiceID: "https://example.com/",
 				},
 			},
 		},
 		{
-			name:      "single item, should not match",
-			serviceID: 1,
+			name:        "single item, should not match",
+			codeHostURL: "https://example.com/",
 			data: []campaigns.ChangesetSyncData{
 				{
-					ChangesetID:        1,
-					ExternalServiceIDs: []int64{2},
-				},
-			},
-			want: []campaigns.ChangesetSyncData{},
-		},
-		{
-			name:      "multiple items, should match",
-			serviceID: 2,
-			data: []campaigns.ChangesetSyncData{
-				{
-					ChangesetID:        1,
-					ExternalServiceIDs: []int64{1, 2},
-				},
-			},
-			want: []campaigns.ChangesetSyncData{
-				{
-					ChangesetID:        1,
-					ExternalServiceIDs: []int64{1, 2},
-				},
-			},
-		},
-		{
-			name:      "multiple items, should not match",
-			serviceID: 1,
-			data: []campaigns.ChangesetSyncData{
-				{
-					ChangesetID:        1,
-					ExternalServiceIDs: []int64{1, 2},
+					ChangesetID:           1,
+					RepoExternalServiceID: "https://example2.com/",
 				},
 			},
 			want: []campaigns.ChangesetSyncData{},
@@ -339,7 +431,7 @@ func TestFilterSyncData(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			data := filterSyncData(tc.serviceID, tc.data)
+			data := filterSyncData(tc.codeHostURL, tc.data)
 			if diff := cmp.Diff(tc.want, data); diff != "" {
 				t.Fatal(diff)
 			}
@@ -360,7 +452,7 @@ func TestSyncRegistry(t *testing.T) {
 					ID:          1,
 					Kind:        extsvc.KindGitHub,
 					DisplayName: "",
-					Config:      "",
+					Config:      `{"url": "https://example.com/"}`,
 					CreatedAt:   time.Time{},
 					UpdatedAt:   time.Time{},
 				},
@@ -369,12 +461,13 @@ func TestSyncRegistry(t *testing.T) {
 	}
 
 	syncStore := MockSyncStore{
+		listChangesets: mockListChangesets,
 		listChangesetSyncData: func(ctx context.Context, opts ListChangesetSyncDataOpts) (data []campaigns.ChangesetSyncData, err error) {
 			return []campaigns.ChangesetSyncData{
 				{
-					ChangesetID:        1,
-					UpdatedAt:          now,
-					ExternalServiceIDs: []int64{1},
+					ChangesetID:           1,
+					UpdatedAt:             now,
+					RepoExternalServiceID: "https://example.com/",
 				},
 			}, nil
 		},
@@ -400,6 +493,7 @@ func TestSyncRegistry(t *testing.T) {
 	r.HandleExternalServiceSync(api.ExternalService{
 		ID:        1,
 		Kind:      extsvc.KindGitHub,
+		Config:    `{"url": "https://example.com/"}`,
 		DeletedAt: &now,
 	})
 	assertSyncerCount(0)
@@ -417,10 +511,10 @@ func TestSyncRegistry(t *testing.T) {
 	// In order to test that priority items are delivered we'll inject our own syncer
 	// with a custom sync func
 	syncer := &ChangesetSyncer{
-		SyncStore:         syncStore,
-		ReposStore:        repoStore,
-		HTTPFactory:       nil,
-		externalServiceID: 1,
+		SyncStore:   syncStore,
+		ReposStore:  repoStore,
+		HTTPFactory: nil,
+		codeHostURL: "https://example.com/",
 		syncFunc: func(ctx context.Context, id int64) error {
 			syncChan <- id
 			return nil
@@ -431,7 +525,7 @@ func TestSyncRegistry(t *testing.T) {
 
 	// Set the syncer
 	r.mu.Lock()
-	r.syncers[1] = syncer
+	r.syncers["https://example.com/"] = syncer
 	r.mu.Unlock()
 
 	// Send priority items
@@ -454,7 +548,7 @@ type MockSyncStore struct {
 	listChangesetSyncData func(context.Context, ListChangesetSyncDataOpts) ([]campaigns.ChangesetSyncData, error)
 	getChangeset          func(context.Context, GetChangesetOpts) (*campaigns.Changeset, error)
 	listChangesets        func(context.Context, ListChangesetsOpts) (campaigns.Changesets, int64, error)
-	updateChangesets      func(context.Context, ...*campaigns.Changeset) error
+	updateChangeset       func(context.Context, *campaigns.Changeset) error
 	upsertChangesetEvents func(context.Context, ...*campaigns.ChangesetEvent) error
 	transact              func(context.Context) (*Store, error)
 }
@@ -471,8 +565,8 @@ func (m MockSyncStore) ListChangesets(ctx context.Context, opts ListChangesetsOp
 	return m.listChangesets(ctx, opts)
 }
 
-func (m MockSyncStore) UpdateChangesets(ctx context.Context, cs ...*campaigns.Changeset) error {
-	return m.updateChangesets(ctx, cs...)
+func (m MockSyncStore) UpdateChangeset(ctx context.Context, c *campaigns.Changeset) error {
+	return m.updateChangeset(ctx, c)
 }
 
 func (m MockSyncStore) UpsertChangesetEvents(ctx context.Context, cs ...*campaigns.ChangesetEvent) error {
@@ -496,14 +590,22 @@ func (m MockRepoStore) UpsertRepos(ctx context.Context, repos ...*repos.Repo) er
 	panic("implement me")
 }
 
-func (m MockRepoStore) ListAllRepoNames(ctx context.Context) ([]api.RepoName, error) {
-	panic("implement me")
-}
-
 func (m MockRepoStore) ListExternalServices(ctx context.Context, args repos.StoreListExternalServicesArgs) ([]*repos.ExternalService, error) {
 	return m.listExternalServices(ctx, args)
 }
 
 func (m MockRepoStore) ListRepos(ctx context.Context, args repos.StoreListReposArgs) ([]*repos.Repo, error) {
 	return m.listRepos(ctx, args)
+}
+
+func (m MockRepoStore) SetClonedRepos(ctx context.Context, repoNames ...string) error {
+	panic("implement me")
+}
+
+func (m MockRepoStore) CountNotClonedRepos(ctx context.Context) (uint64, error) {
+	panic("implement me")
+}
+
+func mockListChangesets(ctx context.Context, opts ListChangesetsOpts) (campaigns.Changesets, int64, error) {
+	return nil, 0, nil
 }

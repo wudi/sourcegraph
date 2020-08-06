@@ -2,6 +2,26 @@
 
 set -euf -o pipefail
 
+bash_error="Please upgrade bash to version 4. Currently on ${BASH_VERSION}."
+
+if [[ ${BASH_VERSION:0:1} -lt 4 ]]; then
+  case ${OSTYPE} in
+    darwin)
+      echo "${bash_error}"
+      echo
+      echo "  brew install bash"
+      exit 1
+      ;;
+    linux-gnu)
+      echo "${bash_error}"
+      echo
+      echo "  Use your OS package manager to upgrade."
+      echo "  eg: apt-get install --only-upgrade bash OR yum -y update bash"
+      exit 1
+      ;;
+  esac
+fi
+
 unset CDPATH
 cd "$(dirname "${BASH_SOURCE[0]}")/.." # cd to repo root dir
 

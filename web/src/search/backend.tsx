@@ -1,4 +1,4 @@
-import { Observable, of, combineLatest, defer } from 'rxjs'
+import { Observable, of, combineLatest, defer, from } from 'rxjs'
 import { catchError, map, switchMap, publishReplay, refCount } from 'rxjs/operators'
 import { dataOrThrowErrors, gql } from '../../../shared/src/graphql/graphql'
 import * as GQL from '../../../shared/src/graphql/schema'
@@ -7,50 +7,39 @@ import { memoizeObservable } from '../../../shared/src/util/memoizeObservable'
 import { mutateGraphQL, queryGraphQL } from '../backend/graphql'
 import { USE_CODEMOD } from '../enterprise/codemod'
 import { SearchSuggestion } from '../../../shared/src/search/suggestions'
-import { Services } from '../../../shared/src/api/client/services'
-
-// TODO: Make this a proper fragment, blocked by https://github.com/graph-gophers/graphql-go/issues/241.
-const genericSearchResultInterfaceFields = `
-    __typename
-    label {
-        html
-    }
-    url
-    icon
-    detail {
-        html
-    }
-    matches {
-        url
-        body {
-            text
-            html
-        }
-        highlights {
-            line
-            character
-            length
-        }
-    }
-`
+import { Remote } from 'comlink'
+import { FlatExtHostAPI } from '../../../shared/src/api/contract'
+import { wrapRemoteObservable } from '../../../shared/src/api/client/api/common'
+import { DeployType } from '../jscontext'
 
 export function search(
     query: string,
     version: string,
     patternType: GQL.SearchPatternType,
     versionContext: string | undefined,
-    services: Services
+    extensionHostPromise: Promise<Remote<FlatExtHostAPI>>
 ): Observable<GQL.ISearchResults | ErrorLike> {
-    const transformedQuery = services.queryTransformer.transformQuery
-        ? services.queryTransformer.transformQuery(query)
-        : of(query)
+    const transformedQuery = from(extensionHostPromise).pipe(
+        switchMap(extensionHost => wrapRemoteObservable(extensionHost.transformSearchQuery(query)))
+    )
 
     return transformedQuery.pipe(
         switchMap(query =>
             queryGraphQL(
                 gql`
-                    query Search($query: String!, $version: SearchVersion!, $patternType: SearchPatternType!, $useCodemod: Boolean!, $versionContext: String) {
-                        search(query: $query, version: $version, patternType: $patternType, versionContext: $versionContext) {
+                    query Search(
+                        $query: String!
+                        $version: SearchVersion!
+                        $patternType: SearchPatternType!
+                        $useCodemod: Boolean!
+                        $versionContext: String
+                    ) {
+                        search(
+                            query: $query
+                            version: $version
+                            patternType: $patternType
+                            versionContext: $versionContext
+                        ) {
                             results {
                                 __typename
                                 limitHit
@@ -79,7 +68,29 @@ export function search(
                                     ... on Repository {
                                         id
                                         name
-                                        ${genericSearchResultInterfaceFields}
+                                        # TODO: Make this a proper fragment, blocked by https://github.com/graph-gophers/graphql-go/issues/241.
+                                        # beginning of genericSearchResultInterfaceFields inline fragment
+                                        label {
+                                            html
+                                        }
+                                        url
+                                        icon
+                                        detail {
+                                            html
+                                        }
+                                        matches {
+                                            url
+                                            body {
+                                                text
+                                                html
+                                            }
+                                            highlights {
+                                                line
+                                                character
+                                                length
+                                            }
+                                        }
+                                        # end of genericSearchResultInterfaceFields inline fragment
                                     }
                                     ... on FileMatch {
                                         file {
@@ -101,7 +112,11 @@ export function search(
                                             }
                                             ... on GitRevSpecExpr {
                                                 expr
-                                                object { commit { url } }
+                                                object {
+                                                    commit {
+                                                        url
+                                                    }
+                                                }
                                             }
                                             ... on GitObject {
                                                 abbreviatedOID
@@ -124,10 +139,54 @@ export function search(
                                         }
                                     }
                                     ... on CommitSearchResult {
-                                        ${genericSearchResultInterfaceFields}
+                                        # TODO: Make this a proper fragment, blocked by https://github.com/graph-gophers/graphql-go/issues/241.
+                                        # beginning of genericSearchResultInterfaceFields inline fragment
+                                        label {
+                                            html
+                                        }
+                                        url
+                                        icon
+                                        detail {
+                                            html
+                                        }
+                                        matches {
+                                            url
+                                            body {
+                                                text
+                                                html
+                                            }
+                                            highlights {
+                                                line
+                                                character
+                                                length
+                                            }
+                                        }
+                                        # end of genericSearchResultInterfaceFields inline fragment
                                     }
-                                    ...on CodemodResult @include(if: $useCodemod) {
-                                        ${genericSearchResultInterfaceFields}
+                                    ... on CodemodResult @include(if: $useCodemod) {
+                                        # TODO: Make this a proper fragment, blocked by https://github.com/graph-gophers/graphql-go/issues/241.
+                                        # beginning of genericSearchResultInterfaceFields inline fragment
+                                        label {
+                                            html
+                                        }
+                                        url
+                                        icon
+                                        detail {
+                                            html
+                                        }
+                                        matches {
+                                            url
+                                            body {
+                                                text
+                                                html
+                                            }
+                                            highlights {
+                                                line
+                                                character
+                                                length
+                                            }
+                                        }
+                                        # end of genericSearchResultInterfaceFields inline fragment
                                     }
                                 }
                                 alert {

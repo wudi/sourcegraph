@@ -29,7 +29,6 @@ import (
 	"github.com/sourcegraph/sourcegraph/internal/gitserver"
 	"github.com/sourcegraph/sourcegraph/internal/mutablelimiter"
 	"github.com/sourcegraph/sourcegraph/internal/search"
-	"github.com/sourcegraph/sourcegraph/internal/search/query"
 	querytypes "github.com/sourcegraph/sourcegraph/internal/search/query/types"
 	"github.com/sourcegraph/sourcegraph/internal/trace/ot"
 	"github.com/sourcegraph/sourcegraph/internal/vcs/git"
@@ -209,6 +208,8 @@ func textSearch(ctx context.Context, searcherURLs *endpoint.Map, repo gitserver.
 		"FetchTimeout":    []string{fetchTimeout.String()},
 		"Languages":       p.Languages,
 		"CombyRule":       []string{p.CombyRule},
+
+		"PathPatternsAreRegExps": []string{"true"},
 	}
 	if deadline, ok := ctx.Deadline(); ok {
 		t, err := deadline.MarshalText()
@@ -229,9 +230,6 @@ func textSearch(ctx context.Context, searcherURLs *endpoint.Map, repo gitserver.
 	}
 	if p.IsCaseSensitive {
 		q.Set("IsCaseSensitive", "true")
-	}
-	if p.PathPatternsAreRegExps {
-		q.Set("PathPatternsAreRegExps", "true")
 	}
 	if p.PathPatternsAreCaseSensitive {
 		q.Set("PathPatternsAreCaseSensitive", "true")
@@ -370,7 +368,7 @@ func searchFilesInRepo(ctx context.Context, searcherURLs *endpoint.Map, repo *ty
 	// backend.{GitRepo,Repos.ResolveRev}) because that would slow this operation
 	// down by a lot (if we're looping over many repos). This means that it'll fail if a
 	// repo is not on gitserver.
-	commit, err := git.ResolveRevision(ctx, gitserverRepo, nil, rev, &git.ResolveRevisionOptions{NoEnsureRevision: true})
+	commit, err := git.ResolveRevision(ctx, gitserverRepo, nil, rev, git.ResolveRevisionOptions{NoEnsureRevision: true})
 	if err != nil {
 		return nil, false, err
 	}
@@ -425,7 +423,7 @@ func repoShouldBeSearched(ctx context.Context, searcherURLs *endpoint.Map, searc
 // whether or not the repoShouldBeSearched in or not, based on whether matches were returned.
 func repoHasFilesWithNamesMatching(ctx context.Context, searcherURLs *endpoint.Map, include bool, repoHasFileFlag []string, gitserverRepo gitserver.Repo, commit api.CommitID, fetchTimeout time.Duration) (bool, error) {
 	for _, pattern := range repoHasFileFlag {
-		p := search.TextPatternInfo{IsRegExp: true, FileMatchLimit: 1, IncludePatterns: []string{pattern}, PathPatternsAreRegExps: true, PathPatternsAreCaseSensitive: false, PatternMatchesContent: true, PatternMatchesPath: true}
+		p := search.TextPatternInfo{IsRegExp: true, FileMatchLimit: 1, IncludePatterns: []string{pattern}, PathPatternsAreCaseSensitive: false, PatternMatchesContent: true, PatternMatchesPath: true}
 		matches, _, err := textSearch(ctx, searcherURLs, gitserverRepo, commit, &p, fetchTimeout)
 		if err != nil {
 			return false, err
@@ -479,28 +477,30 @@ func searchFilesInRepos(ctx context.Context, args *search.TextParameters) (res [
 
 	common = &searchResultsCommon{partial: make(map[api.RepoName]struct{})}
 
-	var (
-		searcherRepos = args.Repos
-		zoektRepos    []*search.RepositoryRevisions
-	)
+	indexedTyp := textRequest
+	if args.PatternInfo.IsStructuralPat {
+		// Structural Patterns queries zoekt just file files to reduce the set
+		// of files it searches.
+		indexedTyp = fileRequest
+	}
 
-	if args.Zoekt.Enabled() {
-		zoektRepos, searcherRepos, err = zoektIndexedRepos(ctx, args.Zoekt, args.Repos, nil)
-		if err != nil {
-			// Don't hard fail if index is not available yet.
-			tr.LogFields(otlog.String("indexErr", err.Error()))
-			if ctx.Err() == nil {
-				log15.Warn("zoektIndexedRepos failed", "error", err)
-			}
-			common.indexUnavailable = true
-			err = nil
-		}
+	indexed, err := newIndexedSearchRequest(ctx, args, indexedTyp)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	// if there are no indexed repos and this is a structural search
 	// query, there will be no results. Raise a friendly alert.
-	if len(zoektRepos) == 0 && args.PatternInfo.IsStructuralPat {
+	if args.PatternInfo.IsStructuralPat && len(indexed.Repos()) == 0 {
 		return nil, nil, errors.New("no indexed repositories for structural search")
+	}
+
+	// unindexed search does not yet support negated patterns. If there are no indexed repos
+	// and the pattern is negated, raise a friendly alert.
+	if args.PatternInfo.IsNegated && len(indexed.Repos()) == 0 {
+		return nil, nil, errors.New("Your search query contained a negated search pattern for file content " +
+			fmt.Sprintf("\"%s\" ", args.PatternInfo.Pattern) + "but there are no indexed repositories to search over. " +
+			"Negated file contents are not supported for unindexed repositories yet.")
 	}
 
 	common.repos = make([]*types.Repo, len(args.Repos))
@@ -513,39 +513,22 @@ func searchFilesInRepos(ctx context.Context, args *search.TextParameters) (res [
 		return nil, common, nil
 	}
 
-	// Support index:yes (default), index:only, and index:no in search query.
-	index, _ := args.Query.StringValues(query.FieldIndex)
-	if len(index) > 0 {
-		index := index[len(index)-1]
-		switch parseYesNoOnly(index) {
-		case Yes, True:
-			// default
-			if args.Zoekt.Enabled() {
-				tr.LazyPrintf("%d indexed repos, %d unindexed repos", len(zoektRepos), len(searcherRepos))
+	tr.LazyPrintf("%d indexed repos, %d unindexed repos", len(indexed.Repos()), len(indexed.Unindexed))
 
-				// Limit the number of unindexed repositories searched for a single query. Searching
-				// more than this will merely flood the system and network with requests that will timeout.
-				searcherRepos, common.missing = limitSearcherRepos(searcherRepos, maxUnindexedRepoRevSearchesPerQuery)
-				if len(common.missing) > 0 {
-					tr.LazyPrintf("index:yes, limiting unindexed repos searched to %d", maxUnindexedRepoRevSearchesPerQuery)
-				}
-			}
-		case Only:
-			if !args.Zoekt.Enabled() {
-				return nil, common, fmt.Errorf("invalid index:%q (indexed search is not enabled)", index)
-			}
-			common.missing = make([]*types.Repo, len(searcherRepos))
-			for i, r := range searcherRepos {
-				common.missing[i] = r.Repo
-			}
-			tr.LazyPrintf("index:only, ignoring %d unindexed repos", len(searcherRepos))
-			searcherRepos = nil
-		case No, False:
-			tr.LazyPrintf("index:no, bypassing zoekt (using searcher) for %d indexed repos", len(zoektRepos))
-			searcherRepos = append(searcherRepos, zoektRepos...)
-			zoektRepos = nil
-		default:
-			return nil, common, fmt.Errorf("invalid index:%q (valid values are: yes, only, no)", index)
+	var searcherRepos []*search.RepositoryRevisions
+	if indexed.DisableUnindexedSearch {
+		tr.LazyPrintf("disabling unindexed search")
+		common.missing = make([]*types.Repo, len(indexed.Unindexed))
+		for i, r := range indexed.Unindexed {
+			common.missing[i] = r.Repo
+		}
+	} else {
+		// Limit the number of unindexed repositories searched for a single
+		// query. Searching more than this will merely flood the system and
+		// network with requests that will timeout.
+		searcherRepos, common.missing = limitSearcherRepos(indexed.Unindexed, maxUnindexedRepoRevSearchesPerQuery)
+		if len(common.missing) > 0 {
+			tr.LazyPrintf("limiting unindexed repos searched to %d", maxUnindexedRepoRevSearchesPerQuery)
 		}
 	}
 
@@ -696,19 +679,11 @@ func searchFilesInRepos(ctx context.Context, args *search.TextParameters) (res [
 	go func() {
 		// TODO limitHit, handleRepoSearchResult
 		defer wg.Done()
-		var matches []*FileMatchResolver
-		var reposLimitHit map[string]struct{}
-		var limitHit bool
-		var err error
-		if !args.PatternInfo.IsStructuralPat {
-			matches, limitHit, reposLimitHit, err = zoektSearchHEAD(ctx, args, zoektRepos, false, time.Since)
-		} else {
-			matches, limitHit, reposLimitHit, err = zoektSearchHEADOnlyFiles(ctx, args, zoektRepos, false, time.Since)
-		}
+		matches, limitHit, reposLimitHit, err := indexed.Search(ctx)
 		mu.Lock()
 		defer mu.Unlock()
 		if ctx.Err() == nil {
-			for _, repo := range zoektRepos {
+			for _, repo := range indexed.Repos() {
 				common.searched = append(common.searched, repo.Repo)
 				common.indexed = append(common.indexed, repo.Repo)
 			}
@@ -725,7 +700,7 @@ func searchFilesInRepos(ctx context.Context, args *search.TextParameters) (res [
 		}
 		if err == errNoResultsInTimeout {
 			// Effectively, all repositories have timed out.
-			for _, repo := range zoektRepos {
+			for _, repo := range indexed.Repos() {
 				common.timedout = append(common.timedout, repo.Repo)
 			}
 		}
@@ -747,7 +722,7 @@ func searchFilesInRepos(ctx context.Context, args *search.TextParameters) (res [
 			}
 
 			// Filter Zoekt repos that didn't contain matches
-			for _, repo := range zoektRepos {
+			for _, repo := range indexed.Repos() {
 				for key := range partition {
 					if string(repo.Repo.Name) == key {
 						repos = append(repos, repo)
@@ -774,8 +749,10 @@ func searchFilesInRepos(ctx context.Context, args *search.TextParameters) (res [
 		}
 	}()
 
-	// This guard disables unindexed structural search for now.
-	if !args.PatternInfo.IsStructuralPat {
+	// This guard disables
+	// - unindexed structural search
+	// - unindexed search of negated content
+	if !(args.PatternInfo.IsStructuralPat || args.PatternInfo.IsNegated) {
 		if err := callSearcherOverRepos(searcherRepos, nil); err != nil {
 			mu.Lock()
 			searchErr = err

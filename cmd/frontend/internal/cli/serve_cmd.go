@@ -187,7 +187,6 @@ func Main(enterpriseSetupHook func() enterprise.Services) error {
 
 	globals.WatchExternalURL(defaultExternalURL(nginxAddr, httpAddr))
 	globals.WatchPermissionsUserMapping()
-	globals.WatchPermissionsBackgroundSync()
 
 	goroutine.Go(func() { bg.MigrateAllSettingsMOTDToNotices(context.Background()) })
 	goroutine.Go(func() { bg.MigrateSavedQueriesAndSlackWebhookURLsFromSettingsToDatabase(context.Background()) })
@@ -208,7 +207,7 @@ func Main(enterpriseSetupHook func() enterprise.Services) error {
 	}
 
 	// Create the external HTTP handler.
-	externalHandler, err := newExternalHTTPHandler(schema, enterprise.GithubWebhook, enterprise.BitbucketServerWebhook, enterprise.NewCodeIntelUploadHandler)
+	externalHandler, err := newExternalHTTPHandler(schema, enterprise.GitHubWebhook, enterprise.GitLabWebhook, enterprise.BitbucketServerWebhook, enterprise.NewCodeIntelUploadHandler)
 	if err != nil {
 		return err
 	}

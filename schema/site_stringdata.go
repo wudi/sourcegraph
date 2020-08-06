@@ -157,6 +157,21 @@ const SiteSchemaJSON = `{
             ]
           ]
         },
+        "search.index.branches": {
+          "description": "A map from repository name to a list of extra revs (branch, ref, tag, commit sha, etc) to index for a repository. We always index the default branch (\"HEAD\") and revisions in version contexts. This allows specifying additional revisions. Sourcegraph can index up to 64 branches per repository.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" },
+            "maxItems": 64
+          },
+          "examples": [
+            {
+              "github.com/sourcegraph/sourcegraph": ["3.17", "f6ca985c27486c2df5231ea3526caa4a4108ffb6", "v3.17.1"],
+              "name/of/repo": ["develop"]
+            }
+          ]
+        },
         "versionContexts": {
           "description": "JSON array of version context configuration",
           "type": "array",
@@ -188,7 +203,7 @@ const SiteSchemaJSON = `{
                       "type": "string"
                     },
                     "rev": {
-                      "description": "Branch, tag, or commit hash",
+                      "description": "Branch, tag, or commit hash. \"HEAD\" or \"\" can be used for the default branch.",
                       "type": "string"
                     }
                   }
@@ -314,7 +329,7 @@ const SiteSchemaJSON = `{
       "hide": true
     },
     "gitMaxConcurrentClones": {
-      "description": "Maximum number of git clone processes that will be run concurrently to update repositories.",
+      "description": "Maximum number of git clone processes that will be run concurrently per gitserver to update repositories. Note: the global git update scheduler respects gitMaxConcurrentClones. However, we allow each gitserver to run upto gitMaxConcurrentClones to allow for urgent fetches. Urgent fetches are used when a user is browsing a PR and we do not have the commit yet.",
       "type": "integer",
       "default": 5,
       "group": "External services"
@@ -391,7 +406,7 @@ const SiteSchemaJSON = `{
       "group": "Security"
     },
     "permissions.backgroundSync": {
-      "description": "Sync code host repository and user permissions in the background.",
+      "description": "DEPRECATED: Sync code host repository and user permissions in the background.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -469,7 +484,7 @@ const SiteSchemaJSON = `{
           "type": "string"
         },
         "password": {
-          "description": "The username to use when communicating with the SMTP server.",
+          "description": "The password to use when communicating with the SMTP server.",
           "type": "string"
         },
         "authentication": {
@@ -480,6 +495,10 @@ const SiteSchemaJSON = `{
         "domain": {
           "description": "The HELO domain to provide to the SMTP server (if needed).",
           "type": "string"
+        },
+        "disableTLS": {
+          "description": "Disable TLS verification",
+          "type": "boolean"
         }
       },
       "default": null,
@@ -575,17 +594,6 @@ const SiteSchemaJSON = `{
       "type": "string",
       "examples": ["https://sourcegraph.example.com"]
     },
-    "lightstepAccessToken": {
-      "description": "DEPRECATED. Use Jaeger (` + "`" + `\"observability.tracing\": { \"sampling\": \"selective\" }` + "`" + `), instead.",
-      "type": "string",
-      "group": "Misc."
-    },
-    "lightstepProject": {
-      "description": "DEPRECATED. Use Jaeger (` + "`" + `\"observability.tracing\": { \"sampling\": \"selective\" }` + "`" + `), instead.",
-      "type": "string",
-      "examples": ["myproject"],
-      "group": "Misc."
-    },
     "useJaeger": {
       "description": "DEPRECATED. Use ` + "`" + `\"observability.tracing\": { \"sampling\": \"all\" }` + "`" + `, instead. Enables Jaeger tracing.",
       "type": "boolean",
@@ -613,36 +621,58 @@ const SiteSchemaJSON = `{
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["level", "id", "notifier"],
+        "required": ["level", "notifier"],
         "properties": {
           "level": {
             "description": "Sourcegraph alert level to subscribe to notifications for.",
             "type": "string",
             "enum": ["warning", "critical"]
           },
-          "id": {
-            "description": "Unique identifier for this alert.",
-            "type": "string"
-          },
           "notifier": {
             "type": "object",
             "properties": {
               "type": {
                 "type": "string",
-                "enum": ["slack", "pagerduty", "webhook"]
+                "enum": ["slack", "pagerduty", "webhook", "email", "opsgenie"]
               }
             },
             "oneOf": [
-              { "$ref": "#/definitions/GrafanaNotifierSlack" },
-              { "$ref": "#/definitions/GrafanaNotifierPagerduty" },
-              { "$ref": "#/definitions/GrafanaNotifierWebhook" },
-              { "$ref": "#/definitions/GrafanaNotifierOpsGenie" }
+              { "$ref": "#/definitions/NotifierSlack" },
+              { "$ref": "#/definitions/NotifierPagerduty" },
+              { "$ref": "#/definitions/NotifierWebhook" },
+              { "$ref": "#/definitions/NotifierEmail" },
+              { "$ref": "#/definitions/NotifierOpsGenie" }
             ],
             "!go": {
               "taggedUnionType": true
             }
+          },
+          "disableSendResolved": {
+            "description": "Disable notifications when alerts resolve themselves.",
+            "type": "boolean",
+            "default": false
+          },
+          "owners": {
+            "description": "Do not use. When set, only receive alerts owned by the specified teams. Used by Sourcegraph internally.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "default": {
+          "level": "critical",
+          "notifier": {
+            "type": ""
           }
         }
+      }
+    },
+    "observability.silenceAlerts": {
+      "description": "Silence individual Sourcegraph alerts by identifier.",
+      "type": "array",
+      "items": {
+        "type": "string"
       }
     },
     "observability.logSlowSearches": {
@@ -999,8 +1029,8 @@ const SiteSchemaJSON = `{
         }
       }
     },
-    "GrafanaNotifierSlack": {
-      "description": "Slack notifier - see https://grafana.com/docs/grafana/latest/alerting/notifications/#slack",
+    "NotifierSlack": {
+      "description": "Slack notifier",
       "type": "object",
       "required": ["type"],
       "properties": {
@@ -1027,46 +1057,31 @@ const SiteSchemaJSON = `{
         "icon_url": {
           "description": "Provide a URL to an image to use as the icon for the bot’s message.",
           "type": "string"
-        },
-        "mentionUsers": {
-          "description": "Optionally mention one or more users in the Slack notification sent by Grafana. You have to refer to users, comma-separated, via their corresponding Slack IDs (which you can find by clicking the overflow button on each user’s Slack profile).",
-          "type": "string"
-        },
-        "mentionGroups": {
-          "description": "Optionally mention one or more groups in the Slack notification sent by Grafana. You have to refer to groups, comma-separated, via their corresponding Slack IDs (which you can get from each group’s Slack profile URL).",
-          "type": "string"
-        },
-        "mentionChannel": {
-          "description": "Optionally mention either all channel members or just active ones.",
-          "type": "string"
-        },
-        "token": {
-          "description": "If provided, Grafana will upload the generated image via Slack’s file.upload API method, not the external image destination.",
-          "type": "string"
         }
       }
     },
-    "GrafanaNotifierPagerduty": {
-      "description": "Pagerduty notifier - see https://grafana.com/docs/grafana/latest/alerting/notifications/#pagerduty",
+    "NotifierPagerduty": {
+      "description": "PagerDuty notifier",
       "type": "object",
-      "required": ["type", "integrationKey"],
+      "required": ["type", "routingKey"],
       "properties": {
         "type": {
           "type": "string",
           "const": "pagerduty"
         },
         "integrationKey": {
-          "description": "Integration key for PagerDuty.",
+          "description": "Integration key for the PagerDuty Events API v2 - see https://developer.pagerduty.com/docs/events-api-v2/overview",
           "type": "string"
         },
-        "autoResolve": {
-          "description": "Resolve incidents in PagerDuty once the alert goes back to ok",
-          "type": "boolean"
-        }
+        "severity": {
+          "description": "Severity level for PagerDuty alert",
+          "type": "string"
+        },
+        "apiUrl": { "type": "string" }
       }
     },
-    "GrafanaNotifierWebhook": {
-      "description": "Webhook notifier - see https://grafana.com/docs/grafana/latest/alerting/notifications/#webhook",
+    "NotifierWebhook": {
+      "description": "Webhook notifier",
       "type": "object",
       "required": ["type", "url"],
       "properties": {
@@ -1076,13 +1091,29 @@ const SiteSchemaJSON = `{
         },
         "url": { "type": "string" },
         "username": { "type": "string" },
-        "password": { "type": "string" }
+        "password": { "type": "string" },
+        "bearerToken": { "type": "string" }
       }
     },
-    "GrafanaNotifierOpsGenie": {
-      "description": "OpsGenie notifier - see https://docs.opsgenie.com/docs/grafana-integration",
+    "NotifierEmail": {
+      "description": "Email notifier",
       "type": "object",
-      "required": ["type", "apiKey", "apiUrl"],
+      "required": ["type", "address"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "email"
+        },
+        "address": {
+          "description": "Address to send email to",
+          "type": "string"
+        }
+      }
+    },
+    "NotifierOpsGenie": {
+      "description": "OpsGenie notifier",
+      "type": "object",
+      "required": ["type", "apiKey"],
       "properties": {
         "type": {
           "type": "string",
@@ -1090,7 +1121,31 @@ const SiteSchemaJSON = `{
         },
         "apiKey": { "type": "string" },
         "apiUrl": { "type": "string" },
-        "autoClose": { "type": "boolean" }
+        "priority": {
+          "type": "string",
+          "enum": ["P1", "P2", "P3", "P4", "P5"]
+        },
+        "responders": {
+          "type": "array",
+          "description": "List of responders responsible for notifications.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["team", "user", "escalation", "schedule"]
+              },
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "username": { "type": "string" }
+            },
+            "oneOf": [
+              { "required": ["type", "id"] },
+              { "required": ["type", "name"] },
+              { "required": ["type", "username"] }
+            ]
+          }
+        }
       }
     }
   }

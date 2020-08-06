@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/sourcegraph/sourcegraph/cmd/frontend/backend"
-	"github.com/sourcegraph/sourcegraph/cmd/frontend/db"
 	"github.com/sourcegraph/sourcegraph/cmd/frontend/graphqlbackend"
 	gql "github.com/sourcegraph/sourcegraph/cmd/frontend/graphqlbackend"
 	"github.com/sourcegraph/sourcegraph/cmd/frontend/types"
@@ -16,6 +15,7 @@ import (
 	"github.com/sourcegraph/sourcegraph/enterprise/internal/codeintel/resolvers"
 	"github.com/sourcegraph/sourcegraph/enterprise/internal/codeintel/store"
 	"github.com/sourcegraph/sourcegraph/internal/api"
+	"github.com/sourcegraph/sourcegraph/internal/db"
 	"github.com/sourcegraph/sourcegraph/internal/gitserver"
 	"github.com/sourcegraph/sourcegraph/internal/vcs/git"
 )
@@ -38,7 +38,7 @@ func TestCachedLocationResolver(t *testing.T) {
 		return &types.Repo{ID: id}, nil
 	}
 
-	git.Mocks.ResolveRevision = func(spec string, opt *git.ResolveRevisionOptions) (api.CommitID, error) {
+	git.Mocks.ResolveRevision = func(spec string, opt git.ResolveRevisionOptions) (api.CommitID, error) {
 		return api.CommitID(spec), nil
 	}
 
@@ -154,6 +154,34 @@ func TestCachedLocationResolver(t *testing.T) {
 	}
 }
 
+func TestCachedLocationResolverUnknownRepository(t *testing.T) {
+	t.Cleanup(func() {
+		db.Mocks.Repos.Get = nil
+		git.Mocks.ResolveRevision = nil
+	})
+
+	db.Mocks.Repos.Get = func(v0 context.Context, id api.RepoID) (*types.Repo, error) {
+		return nil, &db.RepoNotFoundErr{ID: id}
+	}
+
+	repositoryResolver, err := NewCachedLocationResolver().Repository(context.Background(), 50)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	if repositoryResolver != nil {
+		t.Errorf("unexpected non-nil resolver")
+	}
+
+	// Ensure no dereference in child resolvers either
+	pathResolver, err := NewCachedLocationResolver().Path(context.Background(), 50, "deadbeef", "main.go")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	if pathResolver != nil {
+		t.Errorf("unexpected non-nil resolver")
+	}
+}
+
 func TestCachedLocationResolverUnknownCommit(t *testing.T) {
 	t.Cleanup(func() {
 		db.Mocks.Repos.Get = nil
@@ -164,7 +192,7 @@ func TestCachedLocationResolverUnknownCommit(t *testing.T) {
 		return &types.Repo{ID: id}, nil
 	}
 
-	git.Mocks.ResolveRevision = func(spec string, opt *git.ResolveRevisionOptions) (api.CommitID, error) {
+	git.Mocks.ResolveRevision = func(spec string, opt git.ResolveRevisionOptions) (api.CommitID, error) {
 		return "", &gitserver.RevisionNotFoundError{}
 	}
 
@@ -173,6 +201,15 @@ func TestCachedLocationResolverUnknownCommit(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	if commitResolver != nil {
+		t.Errorf("unexpected non-nil resolver")
+	}
+
+	// Ensure no dereference in child resolvers either
+	pathResolver, err := NewCachedLocationResolver().Path(context.Background(), 50, "deadbeef", "main.go")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	if pathResolver != nil {
 		t.Errorf("unexpected non-nil resolver")
 	}
 }
@@ -188,7 +225,7 @@ func TestResolveLocations(t *testing.T) {
 		return &types.Repo{ID: id, Name: api.RepoName(fmt.Sprintf("repo%d", id))}, nil
 	}
 
-	git.Mocks.ResolveRevision = func(spec string, opt *git.ResolveRevisionOptions) (api.CommitID, error) {
+	git.Mocks.ResolveRevision = func(spec string, opt git.ResolveRevisionOptions) (api.CommitID, error) {
 		if spec == "deadbeef3" {
 			return "", &gitserver.RevisionNotFoundError{}
 		}

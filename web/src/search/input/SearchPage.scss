@@ -5,6 +5,7 @@
 @import './LazyMonacoQueryInput';
 @import './InfoDropdown';
 @import './interactive/InteractiveModeInput';
+@import './PrivateCodeCta';
 
 .search-page {
     display: flex;
@@ -24,9 +25,14 @@
         max-width: 90%;
     }
 
-    &__container {
+    &__cloud-tag-line {
+        margin-top: 1rem;
+        color: $gray-07;
+    }
+
+    &__search-container {
         flex: 1 1 auto;
-        margin-top: 4rem;
+        margin-top: 1.5rem;
         width: 49rem;
         max-width: 90%;
         position: relative;
@@ -35,6 +41,10 @@
             .toggle-container__copy-query-button {
                 opacity: 1;
             }
+        }
+
+        &--with-repogroups {
+            flex-grow: 0;
         }
     }
 
@@ -48,12 +58,58 @@
         display: block;
         margin: 0.5rem 0;
     }
+
+    &__repogroup-content {
+        max-width: 90%;
+    }
+
+    &__repogroup-list {
+        &-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+            grid-auto-rows: minmax(4rem, auto);
+            gap: $spacer * 0.75;
+        }
+
+        &-icon {
+            width: 3rem;
+            height: 3rem;
+            object-fit: contain;
+        }
+    }
+
+    &__search-a-language {
+        margin-bottom: 3rem;
+    }
+
+    &__lang-link {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    &__help-content {
+        &-subheading {
+            margin-bottom: 1rem;
+        }
+    }
+
+    &__repogroup-listing-title {
+        margin-bottom: 0.25rem;
+    }
 }
 
 .theme-light {
     .search-page {
-        &__sign-in {
-            color: $color-light-text-4;
+        &__cloud-tag-line {
+            color: $gray-11;
+        }
+    }
+}
+
+.theme-dark {
+    .search-page {
+        &__web-link {
+            color: #1c7cd6;
         }
     }
 }

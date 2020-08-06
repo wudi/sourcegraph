@@ -28,6 +28,7 @@ Have a look around, our code is on [GitHub](https://sourcegraph.com/github.com/s
     - [Increase maximum available file descriptors.](#increase-maximum-available-file-descriptors)
     - [Caddy 2 certificate problems](#caddy-2-certificate-problems)
     - [Running out of disk space](#running-out-of-disk-space)
+    - [Certificate expiry](#certificate-expiry)
 - [How to Run Tests](#how-to-run-tests)
 - [CPU/RAM/bandwidth/battery usage](#cpurambandwidthbattery-usage)
 - [How to debug live code](#how-to-debug-live-code)
@@ -41,7 +42,7 @@ Have a look around, our code is on [GitHub](https://sourcegraph.com/github.com/s
 
 ## Environment
 
-Sourcegraph server is a collection of smaller binaries. The development server, [dev/start.sh](https://github.com/sourcegraph/sourcegraph/blob/master/dev/start.sh), initializes the environment and starts a process manager that runs all of the binaries. See the [Architecture doc](architecture/index.md) for a full description of what each of these services does. The sections below describe the dependencies you need to run `dev/start.sh`.
+Sourcegraph server is a collection of smaller binaries. The development server, [dev/start.sh](https://github.com/sourcegraph/sourcegraph/blob/main/dev/start.sh), initializes the environment and starts a process manager that runs all of the binaries. See the [Architecture doc](architecture/index.md) for a full description of what each of these services does. The sections below describe the dependencies you need to run `dev/start.sh`.
 
 <!-- omit in toc -->
 ### For Sourcegraph employees
@@ -64,7 +65,7 @@ After the initial setup you can run `enterprise/dev/start.sh` instead of `dev/st
 Sourcegraph has the following dependencies:
 - [Git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) (v2.18 or higher)
 - [Go](https://golang.org/doc/install) (v1.14 or higher)
-- [Node JS](https://nodejs.org/en/download/) (see current recommended version in [.nvmrc](https://github.com/sourcegraph/sourcegraph/blob/master/.nvmrc))
+- [Node JS](https://nodejs.org/en/download/) (see current recommended version in [.nvmrc](https://github.com/sourcegraph/sourcegraph/blob/main/.nvmrc))
 - [make](https://www.gnu.org/software/make/)
 - [Docker](https://docs.docker.com/engine/installation/) (v18 or higher)
   - For macOS we recommend using Docker for Mac instead of `docker-machine`
@@ -75,6 +76,7 @@ Sourcegraph has the following dependencies:
 - [SQLite](https://www.sqlite.org/index.html) tools
 - [Golang Migrate](https://github.com/golang-migrate/migrate/) (v4.7.0 or higher)
 - [Comby](https://github.com/comby-tools/comby/) (v0.11.3 or higher)
+- [Watchman](https://facebook.github.io/watchman/)
 
 The following are two recommendations for installing these dependencies:
 
@@ -92,7 +94,7 @@ The following are two recommendations for installing these dependencies:
 3.  Install Go, Node Version Manager, PostgreSQL, Redis, Git, NGINX, golang-migrate, Comby, SQLite tools, and jq with the following command:
 
     ```
-    brew install go yarn redis postgresql git gnu-sed nginx golang-migrate comby sqlite pcre FiloSottile/musl-cross/musl-cross jq
+    brew install go yarn redis postgresql git gnu-sed nginx golang-migrate comby sqlite pcre FiloSottile/musl-cross/musl-cross jq watchman
     ```
 
 4.  Install the Node Version Manager (`nvm`) using:
@@ -181,6 +183,15 @@ The following are two recommendations for installing these dependencies:
     # install comby (you must rename the extracted binary to `comby` and move the binary into your $PATH)
     curl -L https://github.com/comby-tools/comby/releases/download/0.11.3/comby-0.11.3-x86_64-linux.tar.gz | tar xvz
 
+    # install watchman (you must put the binary and shared libraries on your $PATH and $LD_LIBRARY_PATH)
+    curl -LO https://github.com/facebook/watchman/releases/download/v2020.07.13.00/watchman-v2020.07.13.00-linux.zip
+    unzip watchman-*-linux.zip
+    sudo mkdir -p /usr/local/{bin,lib} /usr/local/var/run/watchman
+    sudo cp bin/* /usr/local/bin
+    sudo cp lib/* /usr/local/lib
+    sudo chmod 755 /usr/local/bin/watchman
+    sudo chmod 2777 /usr/local/var/run/watchman
+
     # nvm (to manage Node.js)
     NVM_VERSION="$(curl https://api.github.com/repos/nvm-sh/nvm/releases/latest | jq -r .name)"
     curl -L https://raw.githubusercontent.com/nvm-sh/nvm/"$NVM_VERSION"/install.sh -o install-nvm.sh
@@ -259,9 +270,9 @@ asdf plugin add yarn
 <!-- omit in toc -->
 #### Usage instructions
 
-[asdf](https://github.com/asdf-vm/asdf) uses versions specified in [.tool-versions](https://github.com/sourcegraph/sourcegraph/blob/master/.tool-versions) whenever a command is run from one of `sourcegraph/sourcegraph`'s subdirectories.
+[asdf](https://github.com/asdf-vm/asdf) uses versions specified in [.tool-versions](https://github.com/sourcegraph/sourcegraph/blob/main/.tool-versions) whenever a command is run from one of `sourcegraph/sourcegraph`'s subdirectories.
 
-You can install the all the versions specified in [.tool-versions](https://github.com/sourcegraph/sourcegraph/blob/master/.tool-versions) by running `asdf install`.
+You can install the all the versions specified in [.tool-versions](https://github.com/sourcegraph/sourcegraph/blob/main/.tool-versions) by running `asdf install`.
 
 
 ## Step 2: Initialize your database
@@ -337,7 +348,7 @@ You may also want to run Postgres within a docker container instead of as a syst
    -v $PGDATA_DIR:/var/lib/postgresql/data postgres
    ```
 
-3. Ensure you can connect to the database using `pgsql -U sourcegraph` and enter password `sourcegraph`.
+3. Ensure you can connect to the database using `psql -U sourcegraph` and enter password `sourcegraph`.
 
 4. Configure database settings in your environment:
 
@@ -459,6 +470,14 @@ cd web
 yarn
 ```
 
+### Node version out of date
+
+```bash
+Validating package.json...
+error @: The engine "node" is incompatible with this module. Expected version "^v14.7.0". Got "14.5.0"
+```
+If you see an error like this you need to upgrade the version of node installed. You can do this with `nvm use` and then following the prompts to install or update to the correct Node.js version. 
+
 #### dial tcp 127.0.0.1:3090: connect: connection refused
 
 This means the `frontend` server failed to start, for some reason. Look through
@@ -533,6 +552,17 @@ We use Caddy 2 to setup HTTPS for local development. It creates self-signed cert
 
 1. If you have completed the previous step and your browser still complains about the certificate, try restarting your browser or your local machine.
 
+##### Adding Caddy certificates to Windows
+
+When running Caddy on WSL, you need to manually add the Caddy root certificate to the Windows certificate store using [certutil.exe](https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/certutil).
+
+```bash
+# Run inside WSL
+certutil.exe -addstore -user Root "$(find /usr/local/share/ca-certificates/ -name '*Caddy*')"
+```
+
+This command will add the certificate to the `Trusted Root Certification Authorities` for your Windows user.
+
 #### Running out of disk space
 
 If you see errors similar to this:
@@ -548,6 +578,12 @@ You can override that by setting this env variable:
 # means 5%. You may want to put that into .bashrc for convinience
 SRC_REPOS_DESIRED_PERCENT_FREE=5
 ```
+
+#### Certificate expiry
+
+If you see a certificate expiry warning you may need to delete your certificate and restart your server.
+
+On MaCOS, the certificate can be removed from here: `~/Library/Application\ Support/Caddy/certificates/local/sourcegraph.test`
 
 ## How to Run Tests
 
@@ -618,7 +654,7 @@ dlv attach $(pgrep frontend)
 
 Delve will pause the process once it attaches the debugger. Most used [commands](https://github.com/go-delve/delve/tree/master/Documentation/cli):
 
-- `b cmd/frontend/db/access_tokens.go:52` to set a breakpoint on a line (`bp` lists all, `clearall` deletes all)
+- `b internal/db/access_tokens.go:52` to set a breakpoint on a line (`bp` lists all, `clearall` deletes all)
 - `c` to continue execution of the program
 - `Ctrl-C` pause the program to bring back the command prompt
 - `n` to step over the next statement
